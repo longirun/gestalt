@@ -1,0 +1,47 @@
+# Gradle & Build
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+bin/
+out/
+
+# Java & JVM
+*.class
+*.jar
+*.war
+*.ear
+*.hprof
+
+# IDEs & Editors
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Operating Systems
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# Local Environment & Secrets
+.env
+.env.*
+!.env.example
