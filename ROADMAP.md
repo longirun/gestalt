@@ -27,7 +27,7 @@
 | Write-path | Encoding (сек) → Dreaming (часы) → Gestalting (дни) + Reconciliation (фон) | Р18, Р6, Р10 |
 | Хранилище | Pure PostgreSQL 16+ / pgvector; рёбра — таблицы + recursive CTE | Р7 |
 | Read-path | PortraitSnapshot (CRITICAL/CONSTRUCTS/PREFERENCES, ≤40×200, cutoff, джоба ~10 мин) + WORLD-recall; 0 LLM | Р19, Р8 |
-| Метрика | golden-набор (L1 выбор + L2 ответ), парный A/B lift, LLM-judge; ось no-false-memory, filler-инвариант, BEAM-фильтр состава | Р12, Р14 |
+| Метрика | golden-набор (L1 выбор + L2 ответ), парный A/B lift, LLM-судья + детерминированные оракулы, ярусы harness'а; ось no-false-memory, filler-инвариант; внешний трек сравнимости (LongMemEval/BEAM) — health, не гейт | Р12, Р14, Р36, Р37 |
 | Прескриптивы | минимальный канал фидбека (kill-insight + acceptance), отдельное хранилище | Р9, Р12 |
 | Платформа | Java 21 LTS, zero-framework core, SPI; Apache 2.0 | Р17 |
 
