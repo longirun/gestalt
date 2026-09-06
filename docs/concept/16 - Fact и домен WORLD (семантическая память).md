@@ -39,6 +39,10 @@ Fact {
   // 1. Идентификация и адресация
   id: UUIDv7,                           // Time-ordered первичный ключ
   owner_id: UUID,                       // Владелец (User)
+  observer_id: UUID,                    // Наблюдатель (Actor, Р3): чья перспектива;
+                                         // v1 — всегда агент сессии; фильтрация перспективы —
+                                         // query-параметр. observed в Fact не хранится:
+                                         // в AU observed ≡ owner (у ConstructInstance — есть)
   domain: WORLD,                        // Доменная категория (Р13)
   scope: SESSION | PROJECT | USER,      // Радиус релевантности (Р13)
   project_id: UUID?,                    // Nullable: привязка к проекту (10 §3.1)
