@@ -22,6 +22,7 @@
 | Слой | Содержание | Решение |
 |---|---|---|
 | Факт-модель | owner / domain (`WORLD`\|`PSYCHE`) / scope (`SESSION`\|`PROJECT`\|`USER`); иерархия User → Project → Session → Message; RLS по `user_id` | Р13, Р11 |
+| Динамика и история | единая кривая затухания в опытном времени (несгораемый минимум; интерференционные пулы = scope); PSYCHE-статусы `emerging/active/drifted` (K = 2); история — три адресных пути, `generalized_from`, полный GIN(anchor); важность вычислима на read-path | Р27, Р28, Р29, Р30 |
 | Construct | Axis + Instance; position детерминирован из evidence; lineage ≥ 2; без seed-словаря | Р5, П1 |
 | Write-path | Encoding (сек) → Dreaming (часы) → Gestalting (дни) + Reconciliation (фон) | Р18, Р6, Р10 |
 | Хранилище | Pure PostgreSQL 16+ / pgvector; рёбра — таблицы + recursive CTE | Р7 |
@@ -47,6 +48,7 @@
 | Отложенное из Р12 | repertory-grid, полный Пиаже-цикл | Р12 |
 | Портреты агентов | реестр портретов версий, политики redaction/утечка промптов | 07 (v2+) |
 | Дрейф личности | метрика долгосрочной эволюции — отдельная от lift | 11 §5 |
+| Динамика памяти v2 | непрерывная интерференция полюсов, `retired`-статус конструкта, точная единица опытного времени | Р27 |
 
 ---
 
