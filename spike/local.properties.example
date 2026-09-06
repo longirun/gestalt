@@ -1,0 +1,22 @@
+# Источник: только чтение (read-only пользователь обязателен)
+source.db.url=jdbc:postgresql://localhost:5433/honcho_memory
+source.db.user=gestalt_ro
+source.db.password=
+
+# Цель: вся запись только сюда
+target.db.url=jdbc:postgresql://localhost:5433/gestalt_spike
+target.db.user=gestalt
+target.db.password=
+
+# LLM батч-экстракции: OpenAI-совместимый роутер (пример инстанса — RouterAI); ключ можно передать env LLM_API_KEY
+llm.base-url=https://routerai.ru/api/v1
+llm.api-key=
+llm.model=deepseek/deepseek-v4-flash-0731
+
+# Калибровка батчинга (драфт 23 §5)
+extractor.batch.max-messages=20
+extractor.batch.max-tokens=2000
+
+# Живой контрольный срез (выдаёт владелец; для синтетики не нужен)
+source.session=
+source.day=

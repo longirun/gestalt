@@ -45,3 +45,11 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Spike Р34: secrets, real data, run outputs (docs/spec/24 §7)
+spike/local.properties
+spike/data/
+drafts/23*
+
+# Gradle wrapper внутри spike (корневой шаблон anchored)
+!spike/gradle/wrapper/gradle-wrapper.jar
