@@ -95,7 +95,8 @@ public final class SpikeRunner {
         FactExtractor extractor;
         if (!config.llmApiKey().isBlank()) {
             System.out.printf("[EXTRACT] Using LLM extractor: %s @ %s%n", config.llmModel(), config.llmBaseUrl());
-            extractor = new LlmBatchExtractor(new LlmClient(config.llmBaseUrl(), config.llmApiKey(), config.llmModel()));
+            extractor = new LlmBatchExtractor(new LlmClient(
+                    config.llmBaseUrl(), config.llmApiKey(), config.llmModel(), config.llmReasoningEffort()));
         } else {
             System.out.println("[EXTRACT] No LLM_API_KEY detected. Using deterministic synthetic extractor (DoD §8.A)...");
             extractor = new SyntheticFixtureExtractor();

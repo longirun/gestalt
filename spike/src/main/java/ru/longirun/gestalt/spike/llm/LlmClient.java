@@ -21,14 +21,20 @@ public final class LlmClient {
     private final String baseUrl;
     private final String apiKey;
     private final String model;
+    private final String reasoningEffort;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
     public LlmClient(String baseUrl, String apiKey, String model) {
+        this(baseUrl, apiKey, model, "");
+    }
+
+    public LlmClient(String baseUrl, String apiKey, String model, String reasoningEffort) {
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
         this.model = model;
+        this.reasoningEffort = reasoningEffort;
     }
 
     public String chat(String systemPrompt, String userPayload) throws Exception {
@@ -39,6 +45,9 @@ public final class LlmClient {
         request.withArray("messages")
                 .addObject().put("role", "user").put("content", userPayload);
         request.put("temperature", 0);
+        if (!reasoningEffort.isBlank()) {
+            request.put("reasoning_effort", reasoningEffort);
+        }
 
         RuntimeException last = null;
         for (int attempt = 1; attempt <= 3; attempt++) {

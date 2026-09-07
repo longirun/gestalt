@@ -12,6 +12,7 @@ target.db.password=
 llm.base-url=https://routerai.ru/api/v1
 llm.api-key=
 llm.model=deepseek/deepseek-v4-flash-0731
+llm.reasoning-effort=low
 
 # Калибровка батчинга (драфт 23 §5)
 extractor.batch.max-messages=20

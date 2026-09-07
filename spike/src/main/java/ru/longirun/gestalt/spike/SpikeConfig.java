@@ -10,7 +10,7 @@ import java.util.Properties;
 public record SpikeConfig(
         String sourceDbUrl, String sourceDbUser, String sourceDbPassword,
         String targetDbUrl, String targetDbUser, String targetDbPassword,
-        String llmBaseUrl, String llmApiKey, String llmModel,
+        String llmBaseUrl, String llmApiKey, String llmModel, String llmReasoningEffort,
         int batchMaxMessages, int batchMaxTokens,
         String sourceSession, String sourceDay) {
 
@@ -35,6 +35,7 @@ public record SpikeConfig(
                 props.getProperty("llm.base-url", ""),
                 apiKey,
                 props.getProperty("llm.model", ""),
+                props.getProperty("llm.reasoning-effort", ""),
                 Integer.parseInt(props.getProperty("extractor.batch.max-messages", "20")),
                 Integer.parseInt(props.getProperty("extractor.batch.max-tokens", "2000")),
                 props.getProperty("source.session", ""),
