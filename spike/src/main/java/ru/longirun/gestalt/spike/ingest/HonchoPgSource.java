@@ -11,7 +11,7 @@ import java.util.Properties;
 
 /**
  * Источник: honcho_memory (только чтение, read-only пользователь — ADR 24 §6).
- * Контрольный срез: session_name + день (параметры — драфт 23).
+ * Контрольный срез: session_name + день (параметры — research/25 §1.1).
  */
 public final class HonchoPgSource implements MessageSource {
 
