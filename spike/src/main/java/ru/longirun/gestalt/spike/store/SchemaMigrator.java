@@ -21,12 +21,29 @@ public final class SchemaMigrator {
             if (!scanner.hasNext()) {
                 return;
             }
-            for (String part : scanner.next().split(";")) {
+            String fullSql = scanner.next();
+            // Убираем однострочные комментарии (-- ...): точка с запятой внутри комментария ломает сплит
+            String cleanedSql = fullSql.replaceAll("(?m)--.*$", "");
+            for (String part : cleanedSql.split(";")) {
                 String sql = part.strip();
                 if (sql.isEmpty()) {
                     continue;
                 }
-                statement.execute(sql);
+
+                try {
+                    statement.execute(sql);
+                } catch (Exception e) {
+                    String lowerSql = sql.toLowerCase();
+                    if (lowerSql.contains("extension") && lowerSql.contains("vector")) {
+                        System.err.println("[WARN] pgvector extension not available, continuing without vectors: " + e.getMessage());
+                    } else if (lowerSql.contains("facts") && e.getMessage().contains("vector")) {
+                        // Fallback: без pgvector создаём facts без векторной колонки
+                        String fallbackSql = sql.replaceAll("(?i)embedding\\s+vector\\(\\d+\\),?", "");
+                        statement.execute(fallbackSql);
+                    } else {
+                        throw e;
+                    }
+                }
             }
         }
     }

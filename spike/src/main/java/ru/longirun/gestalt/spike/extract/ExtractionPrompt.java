@@ -20,14 +20,17 @@ public final class ExtractionPrompt {
             Rules:
             - STATE needs full anchor (subject+predicate+object). Never invent predicates
               for decisions/events — use NARRATIVE with a statement.
+            - Canonical predicates (snake_case) when applicable: git_email, github_account,
+              default_branch, build_tool, java_version, distribution_channel, license.
             - WORLD = facts about the world/projects; PSYCHE = stable traits/preferences
-              of the user. scope = how far the fact is relevant (session/project/user).
+              of the user. scope = how far the fact is relevant (SESSION/PROJECT/USER).
             - conditions carry applicability context (organization, project_type, ...),
               never the fact itself.
             - IGNORE: conversational filler ("ok", "go", single words), terminal/system
               logs, compression notices, transient artifacts (commit hashes, one-off ids),
               typos with no durable content.
             - Prefer 0 facts over noise.
+
             """;
 
     private ExtractionPrompt() {

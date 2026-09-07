@@ -39,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_facts_conditions
 -- Слепок (Р19/Р32): пара (owner, project), NULL-проект — дефолтный слепок
 CREATE TABLE IF NOT EXISTS portrait_snapshots (
     owner_id   TEXT NOT NULL,
-    project_id TEXT,
+    project_id TEXT NOT NULL DEFAULT '',
     snapshot   JSONB NOT NULL,
     cutoff     TIMESTAMPTZ NOT NULL,
     built_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
