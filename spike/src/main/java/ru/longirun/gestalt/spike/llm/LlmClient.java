@@ -37,7 +37,18 @@ public final class LlmClient {
         this.reasoningEffort = reasoningEffort;
     }
 
+    public record Usage(int promptTokens, int completionTokens, int totalTokens) {
+        public static final Usage ZERO = new Usage(0, 0, 0);
+    }
+
+    public record ChatResult(String content, Usage usage) {
+    }
+
     public String chat(String systemPrompt, String userPayload) throws Exception {
+        return chatWithUsage(systemPrompt, userPayload).content();
+    }
+
+    public ChatResult chatWithUsage(String systemPrompt, String userPayload) throws Exception {
         ObjectNode request = MAPPER.createObjectNode();
         request.put("model", model);
         request.putArray("messages")
@@ -64,12 +75,22 @@ public final class LlmClient {
                 if (response.statusCode() / 100 != 2) {
                     throw new IllegalStateException("LLM HTTP " + response.statusCode() + ": " + response.body());
                 }
-                JsonNode content = MAPPER.readTree(response.body())
-                        .path("choices").path(0).path("message").path("content");
-                if (content.isMissingNode()) {
+                JsonNode root = MAPPER.readTree(response.body());
+                JsonNode contentNode = root.path("choices").path(0).path("message").path("content");
+                if (contentNode.isMissingNode()) {
                     throw new IllegalStateException("LLM response without content");
                 }
-                return content.asText();
+
+                Usage usage = Usage.ZERO;
+                JsonNode usageNode = root.path("usage");
+                if (!usageNode.isMissingNode()) {
+                    usage = new Usage(
+                            usageNode.path("prompt_tokens").asInt(0),
+                            usageNode.path("completion_tokens").asInt(0),
+                            usageNode.path("total_tokens").asInt(0));
+                }
+
+                return new ChatResult(contentNode.asText(), usage);
             } catch (RuntimeException | InterruptedException | java.io.IOException e) {
                 last = e instanceof RuntimeException re ? re : new IllegalStateException(e);
                 if (attempt < 3) {

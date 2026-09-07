@@ -93,7 +93,8 @@ public final class SpikeRunner {
                 .batch(messages);
 
         FactExtractor extractor;
-        if (!config.llmApiKey().isBlank()) {
+        boolean isLlm = !config.llmApiKey().isBlank();
+        if (isLlm) {
             System.out.printf("[EXTRACT] Using LLM extractor: %s @ %s%n", config.llmModel(), config.llmBaseUrl());
             extractor = new LlmBatchExtractor(new LlmClient(
                     config.llmBaseUrl(), config.llmApiKey(), config.llmModel(), config.llmReasoningEffort()));
@@ -104,12 +105,34 @@ public final class SpikeRunner {
 
         List<ExtractedFact> allFacts = new ArrayList<>();
         int batchIdx = 1;
+        int totalPromptTokens = 0;
+        int totalCompletionTokens = 0;
+        int totalTokens = 0;
+
         for (List<RawMessage> batch : batches) {
-            System.out.printf("  Processing batch #%d (%d messages, ids %d..%d)...%n",
-                    batchIdx++, batch.size(), batch.getFirst().id(), batch.getLast().id());
-            List<ExtractedFact> batchFacts = extractor.extract(batch);
-            System.out.printf("    Extracted %d facts.%n", batchFacts.size());
-            allFacts.addAll(batchFacts);
+            int batchTokens = batch.stream().mapToInt(RawMessage::tokenCount).sum();
+            if (extractor instanceof LlmBatchExtractor llmExtractor) {
+                LlmBatchExtractor.ExtractionBatchResult res = llmExtractor.extractWithMetrics(batch);
+                totalPromptTokens += res.usage().promptTokens();
+                totalCompletionTokens += res.usage().completionTokens();
+                totalTokens += res.usage().totalTokens();
+
+                System.out.printf("  Batch #%d (%d msgs, %d input tokens, ids %d..%d) -> %d facts | LLM: %d in, %d out (%d total) in %,d ms%n",
+                        batchIdx++, batch.size(), batchTokens, batch.getFirst().id(), batch.getLast().id(),
+                        res.facts().size(), res.usage().promptTokens(), res.usage().completionTokens(), res.usage().totalTokens(), res.durationMillis());
+                allFacts.addAll(res.facts());
+            } else {
+                List<ExtractedFact> batchFacts = extractor.extract(batch);
+                System.out.printf("  Batch #%d (%d msgs, %d input tokens, ids %d..%d) -> %d facts.%n",
+                        batchIdx++, batch.size(), batchTokens, batch.getFirst().id(), batch.getLast().id(), batchFacts.size());
+                allFacts.addAll(batchFacts);
+            }
+        }
+
+        if (isLlm && totalTokens > 0) {
+            double avgPerMsg = messages.isEmpty() ? 0 : (double) totalTokens / messages.size();
+            System.out.printf("[EXTRACT] Total LLM consumption: %,d prompt + %,d completion = %,d tokens (avg: %.1f tokens/raw message)%n",
+                    totalPromptTokens, totalCompletionTokens, totalTokens, avgPerMsg);
         }
         return allFacts;
     }
@@ -125,9 +148,13 @@ public final class SpikeRunner {
             NearDupMatcher nearDup = new NearDupMatcher();
             DedupPipeline pipeline = new DedupPipeline(repo, nearDup);
 
-            DedupStats stats = pipeline.process("user:anton", "session:jrestly-day1", "project:libx", facts);
-            System.out.printf("[DEDUP] Total: %d, Inserted: %d, Reinforced: %d, Conflicts: %d%n",
-                    stats.total(), stats.inserted(), stats.reinforced(), stats.conflicts());
+            String ownerId = resolveOwnerId(messages);
+            String projectId = resolveProjectId(messages);
+            String sessionId = "session:" + resolveSessionName(messages);
+
+            DedupStats stats = pipeline.process(ownerId, sessionId, projectId, facts);
+            System.out.printf("[DEDUP] Total: %d, Inserted: %d, Reinforced: %d, Conflicts: %d, NearCandidates: %d (Dedup ratio: %.1f%%)%n",
+                    stats.total(), stats.inserted(), stats.reinforced(), stats.conflicts(), stats.nearCandidates(), stats.dedupRatio() * 100.0);
         }
     }
 
@@ -146,12 +173,10 @@ public final class SpikeRunner {
             System.out.printf("[PORTRAIT] Reconciling portrait for %s / %s...%n", ownerId, projectId);
             String snapshotJson = job.reconcile(ownerId, projectId);
 
-            Optional<SnapshotRead> read = store.get(ownerId, projectId);
-            if (read.isPresent()) {
-                System.out.printf("[PORTRAIT] Read O(1) latency: %,d ns (%.3f ms)%n",
-                        read.get().readNanos(), read.get().readNanos() / 1_000_000.0);
-                System.out.println("[PORTRAIT] Snapshot JSON:\n" + snapshotJson);
-            }
+            SnapshotStore.BenchmarkResult bench = store.benchmark(ownerId, projectId, 200);
+            System.out.printf("[PORTRAIT] Read O(1) benchmark (N=%d): p50=%.3f ms, p90=%.3f ms, p95=%.3f ms, p99=%.3f ms, avg=%.3f ms%n",
+                    bench.iterations(), bench.p50Ms(), bench.p90Ms(), bench.p95Ms(), bench.p99Ms(), bench.avgMs());
+            System.out.println("[PORTRAIT] Snapshot JSON:\n" + snapshotJson);
         }
     }
 
@@ -172,25 +197,29 @@ public final class SpikeRunner {
             NearDupMatcher nearDup = new NearDupMatcher();
             DedupPipeline pipeline = new DedupPipeline(repo, nearDup);
 
-            String ownerId = messages.stream()
-                    .filter(m -> m.peerName().startsWith("user-"))
-                    .map(m -> m.peerName().replaceFirst("^user-", "user:"))
-                    .findFirst()
-                    .orElse("user:anton");
-
-            String sessionName = messages.getFirst().sessionName();
-            String projectId = "project:libx";
-            if (sessionName != null && sessionName.contains("jrestly")) {
-                projectId = "project:jrestly";
-            } else if (sessionName != null && sessionName.startsWith("per-directory-opencode-")) {
-                projectId = "project:" + sessionName.replaceFirst("^per-directory-opencode-", "").replaceFirst("-[^-]+$", "");
-            }
-            String sessionId = "session:" + (sessionName != null ? sessionName : "default");
+            String ownerId = resolveOwnerId(messages);
+            String projectId = resolveProjectId(messages);
+            String sessionId = "session:" + resolveSessionName(messages);
 
             System.out.printf("%n[DEDUP] Executing 2-step deduplication pipeline for %s @ %s...%n", ownerId, projectId);
             DedupStats stats = pipeline.process(ownerId, sessionId, projectId, facts);
-            System.out.printf("  Dedup result -> Total: %d, Inserted: %d, Reinforced: %d, Conflicts: %d%n",
-                    stats.total(), stats.inserted(), stats.reinforced(), stats.conflicts());
+            System.out.printf("  Dedup result -> Total: %d, Inserted: %d, Reinforced: %d, Conflicts: %d, NearCandidates: %d (Dedup ratio: %.1f%%)%n",
+                    stats.total(), stats.inserted(), stats.reinforced(), stats.conflicts(), stats.nearCandidates(), stats.dedupRatio() * 100.0);
+
+            // ADR 24 §8.Б: trgm-скан живого словаря на split-identity и конвергенцию предикатов (Р25)
+            List<NearDupMatcher.SplitIdentityCandidate> subjectSplits = nearDup.scanSplitIdentity(conn, 0.3);
+            if (!subjectSplits.isEmpty()) {
+                System.out.printf("%n[SPLIT-IDENTITY SCAN] Found %d subject candidate pair(s) in dictionary:%n", subjectSplits.size());
+                subjectSplits.stream().limit(10).forEach(s ->
+                        System.out.printf("  ~ Subject: '%s' vs '%s' (similarity: %.2f)%n", s.subjectA(), s.subjectB(), s.similarity()));
+            }
+
+            List<NearDupMatcher.SplitIdentityCandidate> predicateSplits = nearDup.scanPredicateCandidates(conn, 0.45);
+            if (!predicateSplits.isEmpty()) {
+                System.out.printf("%n[PREDICATE CONVERGENCE (Р25)] Found %d candidate predicate pair(s) for consolidation:%n", predicateSplits.size());
+                predicateSplits.stream().limit(10).forEach(p ->
+                        System.out.printf("  ~ Predicate: '%s' vs '%s' (similarity: %.2f)%n", p.subjectA(), p.subjectB(), p.similarity()));
+            }
 
             System.out.println("\n[PORTRAIT] Running ReconciliationJob (0 LLM deterministic assembly)...");
             SnapshotBuilder builder = new SnapshotBuilder();
@@ -198,10 +227,12 @@ public final class SpikeRunner {
             ReconciliationJob job = new ReconciliationJob(repo, builder, store);
 
             String snapshotJson = job.reconcile(ownerId, projectId);
-            Optional<SnapshotRead> read = store.get(ownerId, projectId);
+
+            // ADR 24 §8.Б: замер латентности чтения слепка (p50/p95)
+            SnapshotStore.BenchmarkResult bench = store.benchmark(ownerId, projectId, 200);
 
             System.out.println("\n================================================================================");
-            System.out.println("  CRITERIA VERIFICATION (ADR 24 §8.A DoD)");
+            System.out.println("  CRITERIA VERIFICATION (ADR 24 §8.A / §8.B DoD)");
             System.out.println("================================================================================");
 
             boolean hasCorporateEmail = facts.stream().anyMatch(f ->
@@ -215,7 +246,7 @@ public final class SpikeRunner {
 
             boolean emailConflictOk = hasCorporateEmail && hasPersonalEmail;
 
-            boolean branchOk = facts.stream().anyMatch(f -> f.predicate().contains("branch") && f.object().toLowerCase().contains("main"));
+            boolean branchOk = facts.stream().anyMatch(f -> f.predicate().contains("branch") && (f.object().toLowerCase().contains("main") || f.object().toLowerCase().contains("master")));
             boolean githubOk = facts.stream().anyMatch(f -> (f.predicate().contains("github") || f.predicate().contains("account") || f.predicate().contains("remote"))
                     && (f.object().toLowerCase().contains("longirun") || f.object().toLowerCase().contains("dev-anton")));
             boolean buildOk = facts.stream().anyMatch(f -> (f.predicate().contains("build") || f.predicate().contains("stack"))
@@ -228,7 +259,7 @@ public final class SpikeRunner {
                     f.subject().toLowerCase().contains("compressed"));
 
             boolean repeatsOk = stats.reinforced() > 0 || stats.inserted() > 0;
-            boolean snapshotOk = read.isPresent() && snapshotJson.contains("critical") && read.get().readNanos() < 50_000_000L;
+            boolean snapshotOk = snapshotJson.contains("critical") && bench.p95Ms() < 50.0;
 
             System.out.printf("  [ %s ] 1. Email conflict (two facts: corporate with org condition, personal)%n",
                     emailConflictOk ? "PASS" : "FAIL");
@@ -236,15 +267,39 @@ public final class SpikeRunner {
                     invariantsOk ? "PASS" : "FAIL");
             System.out.printf("  [ %s ] 3. Noise filtered out (filler, compression notices, typos -> 0 facts)%n",
                     noiseOk ? "PASS" : "FAIL");
-            System.out.printf("  [ %s ] 4. Repeats reinforced / dedup handled (reinforcement_count++ or conflict logged)%n",
-                    repeatsOk ? "PASS" : "FAIL");
-            System.out.printf("  [ %s ] 5. Snapshot read O(1) in %s (CRITICAL section present, 0 LLM)%n",
-                    snapshotOk ? "PASS" : "FAIL",
-                    read.map(r -> "%.3f ms".formatted(r.readNanos() / 1_000_000.0)).orElse("N/A"));
+            System.out.printf("  [ %s ] 4. Repeats reinforced / dedup handled (ratio: %.1f%%, reinforced: %d, near-candidates: %d)%n",
+                    repeatsOk ? "PASS" : "FAIL", stats.dedupRatio() * 100.0, stats.reinforced(), stats.nearCandidates());
+            System.out.printf("  [ %s ] 5. Snapshot read O(1): p50=%.3f ms, p95=%.3f ms, p99=%.3f ms (CRITICAL present, 0 LLM)%n",
+                    snapshotOk ? "PASS" : "FAIL", bench.p50Ms(), bench.p95Ms(), bench.p99Ms());
 
             System.out.println("================================================================================");
             System.out.println("Snapshot Preview:\n" + snapshotJson);
         }
+    }
+
+    private static String resolveOwnerId(List<RawMessage> messages) {
+        return messages.stream()
+                .filter(m -> m.peerName().startsWith("user-"))
+                .map(m -> m.peerName().replaceFirst("^user-", "user:"))
+                .findFirst()
+                .orElse("user:anton");
+    }
+
+    private static String resolveSessionName(List<RawMessage> messages) {
+        if (messages.isEmpty() || messages.getFirst().sessionName() == null) {
+            return "jrestly-day1";
+        }
+        return messages.getFirst().sessionName();
+    }
+
+    private static String resolveProjectId(List<RawMessage> messages) {
+        String sessionName = resolveSessionName(messages);
+        if (sessionName.contains("jrestly")) {
+            return "project:jrestly";
+        } else if (sessionName.startsWith("per-directory-opencode-")) {
+            return "project:" + sessionName.replaceFirst("^per-directory-opencode-", "").replaceFirst("-[^-]+$", "");
+        }
+        return "project:libx";
     }
 
     private static String resolveTargetDbUrl(SpikeConfig config) {

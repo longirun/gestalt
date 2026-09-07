@@ -27,10 +27,15 @@ public final class LlmBatchExtractor implements FactExtractor {
         this.llm = llm;
     }
 
-    @Override
-    public List<ExtractedFact> extract(List<RawMessage> batch) {
+    public record ExtractionBatchResult(
+            List<ExtractedFact> facts,
+            LlmClient.Usage usage,
+            long durationMillis) {
+    }
+
+    public ExtractionBatchResult extractWithMetrics(List<RawMessage> batch) {
         if (batch == null || batch.isEmpty()) {
-            return List.of();
+            return new ExtractionBatchResult(List.of(), LlmClient.Usage.ZERO, 0);
         }
 
         StringBuilder payload = new StringBuilder("Batch of chronological messages to analyze:\n\n");
@@ -40,12 +45,20 @@ public final class LlmBatchExtractor implements FactExtractor {
                     .append(msg.content()).append("\n");
         }
 
+        long start = System.currentTimeMillis();
         try {
-            String rawResponse = llm.chat(ExtractionPrompt.SYSTEM, payload.toString());
-            return parseResponse(rawResponse);
+            LlmClient.ChatResult res = llm.chatWithUsage(ExtractionPrompt.SYSTEM, payload.toString());
+            long duration = System.currentTimeMillis() - start;
+            List<ExtractedFact> facts = parseResponse(res.content());
+            return new ExtractionBatchResult(facts, res.usage(), duration);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to extract facts for batch: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public List<ExtractedFact> extract(List<RawMessage> batch) {
+        return extractWithMetrics(batch).facts();
     }
 
     public static List<ExtractedFact> parseResponse(String rawResponse) {

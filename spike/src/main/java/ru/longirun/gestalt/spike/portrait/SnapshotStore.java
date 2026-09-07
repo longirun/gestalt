@@ -73,4 +73,33 @@ public final class SnapshotStore {
         }
         return Optional.empty();
     }
+
+    public record BenchmarkResult(
+            double p50Ms,
+            double p90Ms,
+            double p95Ms,
+            double p99Ms,
+            double avgMs,
+            double minMs,
+            double maxMs,
+            int iterations) {
+    }
+
+    public BenchmarkResult benchmark(String ownerId, String projectId, int iterations) throws SQLException {
+        long[] nanos = new long[iterations];
+        for (int i = 0; i < iterations; i++) {
+            long start = System.nanoTime();
+            get(ownerId, projectId);
+            nanos[i] = System.nanoTime() - start;
+        }
+        java.util.Arrays.sort(nanos);
+        double p50 = nanos[(int) (iterations * 0.50)] / 1_000_000.0;
+        double p90 = nanos[(int) (iterations * 0.90)] / 1_000_000.0;
+        double p95 = nanos[(int) (iterations * 0.95)] / 1_000_000.0;
+        double p99 = nanos[(int) (iterations * 0.99)] / 1_000_000.0;
+        double min = nanos[0] / 1_000_000.0;
+        double max = nanos[iterations - 1] / 1_000_000.0;
+        double avg = java.util.Arrays.stream(nanos).average().orElse(0) / 1_000_000.0;
+        return new BenchmarkResult(p50, p90, p95, p99, avg, min, max, iterations);
+    }
 }

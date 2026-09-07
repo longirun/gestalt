@@ -53,6 +53,10 @@ public final class FactRepository {
         this.connection = connection;
     }
 
+    public Connection connection() {
+        return connection;
+    }
+
     public UUID insert(String ownerId, String sessionId, String projectId, ExtractedFact fact) throws SQLException {
         String sql = """
                 INSERT INTO facts (

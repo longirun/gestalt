@@ -4,6 +4,7 @@ import ru.longirun.gestalt.spike.extract.ExtractedFact;
 import ru.longirun.gestalt.spike.store.FactRepository;
 
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -14,7 +15,10 @@ import java.util.Optional;
  */
 public final class DedupPipeline {
 
-    public record DedupStats(int total, int inserted, int reinforced, int conflicts) {
+    public record DedupStats(int total, int inserted, int reinforced, int conflicts, int nearCandidates) {
+        public double dedupRatio() {
+            return total == 0 ? 0.0 : (double) reinforced / total;
+        }
     }
 
     private final FactRepository repository;
@@ -30,6 +34,7 @@ public final class DedupPipeline {
         int inserted = 0;
         int reinforced = 0;
         int conflicts = 0;
+        int nearCandidatesCount = 0;
 
         for (ExtractedFact fact : facts) {
             total++;
@@ -57,6 +62,15 @@ public final class DedupPipeline {
                         inserted++;
                     }
                 } else {
+                    List<NearDupMatcher.NearCandidate> nearMatches = nearDup.findCandidates(repository.connection(), fact.subject());
+                    if (!nearMatches.isEmpty()) {
+                        NearDupMatcher.NearCandidate top = nearMatches.getFirst();
+                        if (!ExactMatcher.normalize(top.subjectNorm()).equals(ExactMatcher.normalize(fact.subject()))) {
+                            System.out.printf("[NEAR DUP CANDIDATE] Subject '%s' ~ '%s' (sim: %.2f)%n",
+                                    fact.subject(), top.subjectNorm(), top.similarity());
+                            nearCandidatesCount++;
+                        }
+                    }
                     repository.insert(ownerId, sessionId, projectId, fact);
                     inserted++;
                 }
@@ -67,6 +81,6 @@ public final class DedupPipeline {
             }
         }
 
-        return new DedupStats(total, inserted, reinforced, conflicts);
+        return new DedupStats(total, inserted, reinforced, conflicts, nearCandidatesCount);
     }
 }

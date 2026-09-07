@@ -40,4 +40,20 @@ class BatcherTest {
                 .flatMap(List::stream).toList();
         assertEquals(messages, flat);
     }
+
+    @Test
+    void handlesEmptyMessagesList() {
+        List<List<RawMessage>> batches = new Batcher(10, 1000).batch(List.of());
+        assertTrue(batches.isEmpty());
+    }
+
+    @Test
+    void singleOversizedMessageFormsOwnBatch() {
+        RawMessage huge = msg(1, 5000);
+        RawMessage normal = msg(2, 50);
+        List<List<RawMessage>> batches = new Batcher(10, 1000).batch(List.of(huge, normal));
+        assertEquals(2, batches.size());
+        assertEquals(1, batches.getFirst().size());
+        assertEquals(1, batches.getLast().size());
+    }
 }
