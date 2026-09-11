@@ -1,9 +1,32 @@
-# Replay живого лога: только чтение (read-only пользователь обязателен)
+# Источник: живой лог Honcho (БД honcho_memory), только чтение (read-only пользователь обязателен)
 source.db.url=jdbc:postgresql://localhost:5433/honcho_memory
 source.db.user=gestalt_ro
 source.db.password=
 
-# Хост плеч (одна модель в обоих): OpenAI-совместимый роутер; ключ можно передать env LLM_API_KEY
+# Цель: память eval (БД gestalt_eval) — факты, слепки, чекпоинты; вся запись ТОЛЬКО сюда. Не путать с honcho_memory!
+target.db.url=jdbc:postgresql://localhost:5433/gestalt_eval
+target.db.user=gestalt_eval
+target.db.password=
+
+# LLM батч-экстракции: OpenAI-совместимый роутер; ключ можно передать env LLM_API_KEY
 llm.base-url=https://routerai.ru/api/v1
 llm.api-key=
 llm.model=deepseek/deepseek-v4-flash-0731
+llm.reasoning-effort=low
+
+# День односессионного среза (допущение E1; сессия берётся из sourceSession точек датасета)
+source.day=
+
+# Фикстура вместо живого лога (отладка): путь к jsonl; пусто — живой PG
+source.fixture=
+
+# Калибровка батчинга (research/25 §1.2)
+batch.max-messages=20
+batch.max-tokens=2000
+
+# Гранула слепка (Р32)
+portrait.owner=user:anton
+portrait.project=project:jrestly
+
+# Датасет точек (рабочий файл eval/data/points.live.jsonl — вне VCS, план 31 §2.5)
+dataset.file=dataset/points.jsonl
