@@ -31,7 +31,20 @@ dependencies {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    // viewer — интерактивная оснастка разметчика (вечно висящий сервер), в обычный прогон не входит
+    useJUnitPlatform {
+        excludeTags 'viewer'
+    }
+}
+
+// рабочий стол разметчика E2: ./gradlew viewer → URL в консоли, Ctrl+C — стоп
+tasks.register('viewer', Test) {
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'viewer'
+    }
+    testLogging.showStandardStreams = true
 }
 
 // проброс CLI-аргументов: ./gradlew run -Pargs='<step>'

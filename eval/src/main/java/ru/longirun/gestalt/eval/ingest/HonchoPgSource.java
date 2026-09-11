@@ -11,22 +11,26 @@ import java.util.Properties;
 
 /**
  * Источник: honcho_memory (только чтение, read-only пользователь — ADR 24 §6).
- * Контрольный срез: session_name + день (параметры — research/25 §1.1).
+ * Контрольный срез: session_name + диапазон дней включительно (план 31 §2.5:
+ * срез — все дни сессии, портрет к T накапливается с ранних дней).
  */
 public final class HonchoPgSource implements MessageSource {
 
     private final String url;
     private final Properties creds;
     private final String sessionName;
-    private final String day;
+    private final String dayFrom;
+    private final String dayTo;
 
-    public HonchoPgSource(String url, String user, String password, String sessionName, String day) {
+    public HonchoPgSource(String url, String user, String password,
+                          String sessionName, String dayFrom, String dayTo) {
         this.url = url;
         this.creds = new Properties();
         creds.setProperty("user", user);
         creds.setProperty("password", password);
         this.sessionName = sessionName;
-        this.day = day;
+        this.dayFrom = dayFrom;
+        this.dayTo = dayTo;
     }
 
     @Override
@@ -35,13 +39,14 @@ public final class HonchoPgSource implements MessageSource {
                 SELECT id, peer_name, content, token_count, created_at
                 FROM messages
                 WHERE session_name = ?
-                  AND date_trunc('day', created_at) = ?::date
+                  AND date_trunc('day', created_at) BETWEEN ?::date AND ?::date
                 ORDER BY id ASC
                 """;
         try (Connection c = DriverManager.getConnection(url, creds);
              PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, sessionName);
-            ps.setString(2, day);
+            ps.setString(2, dayFrom);
+            ps.setString(3, dayTo);
             try (ResultSet rs = ps.executeQuery()) {
                 List<RawMessage> messages = new ArrayList<>();
                 while (rs.next()) {

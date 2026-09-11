@@ -1,0 +1,14 @@
+@startuml таймлайн-точки
+title Анатомия точки на логе (Р45)
+rectangle "прошлый\nлог" as past
+rectangle "**T**\nфакт-паттерн\nродился в портрете" as T
+rectangle "факты вне окна ...\nзнает только A\n(через портрет)" as out
+rectangle "окно N реплик —\nвидят оба плеча" as win
+rectangle "**M**\nтриггер\n(вопрос юзера)" as M
+rectangle "истина —\nчто реально\nдальше (из лога)" as f
+past -right-> T
+T -right-> out
+out -right-> win : W0
+win -right-> M
+M -right-> f
+@enduml

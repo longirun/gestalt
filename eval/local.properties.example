@@ -14,8 +14,10 @@ llm.api-key=
 llm.model=deepseek/deepseek-v4-flash-0731
 llm.reasoning-effort=low
 
-# День односессионного среза (допущение E1; сессия берётся из sourceSession точек датасета)
-source.day=
+# Диапазон дней среза включительно (сессия берётся из sourceSession точек датасета);
+# портрет к T копится со всех дней диапазона (план 31 §2.5)
+source.day-from=
+source.day-to=
 
 # Фикстура вместо живого лога (отладка): путь к jsonl; пусто — живой PG
 source.fixture=
@@ -28,5 +30,6 @@ batch.max-tokens=2000
 portrait.owner=user:anton
 portrait.project=project:jrestly
 
-# Датасет точек (рабочий файл eval/data/points.live.jsonl — вне VCS, план 31 §2.5)
-dataset.file=dataset/points.jsonl
+# Датасет точек: рабочий файл разметки E2 (план 31 §2.5) — eval/data, вне VCS;
+# example — для отладки стадий E3-E5
+dataset.file=data/points.live.jsonl

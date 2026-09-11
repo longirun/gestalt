@@ -29,7 +29,8 @@ class EvalConfigTest {
         assertEquals(2000, config.batchMaxTokens());
         assertEquals("dataset/points.jsonl", config.datasetFile());
         assertEquals("", config.sourceDbUrl());
-        assertEquals("", config.sourceDay());
+        assertEquals("", config.sourceDayFrom());
+        assertEquals("", config.sourceDayTo());
         assertEquals("", config.sourceFixture());
         assertEquals("", config.llmBaseUrl());
         assertEquals("", config.llmModel());
@@ -45,7 +46,8 @@ class EvalConfigTest {
                 "source.db.url=jdbc:postgresql://localhost:5433/honcho_memory",
                 "source.db.user=gestalt_ro",
                 "source.db.password=ro-secret",
-                "source.day=2026-08-01",
+                "source.day-from=2026-07-07",
+                "source.day-to=2026-08-24",
                 "source.fixture=fixture/log.jsonl",
                 "target.db.url=jdbc:postgresql://localhost:5433/gestalt_eval_test",
                 "target.db.user=eval_user",
@@ -64,7 +66,8 @@ class EvalConfigTest {
         assertEquals("jdbc:postgresql://localhost:5433/honcho_memory", config.sourceDbUrl());
         assertEquals("gestalt_ro", config.sourceDbUser());
         assertEquals("ro-secret", config.sourceDbPassword());
-        assertEquals("2026-08-01", config.sourceDay());
+        assertEquals("2026-07-07", config.sourceDayFrom());
+        assertEquals("2026-08-24", config.sourceDayTo());
         assertEquals("fixture/log.jsonl", config.sourceFixture());
         assertEquals("jdbc:postgresql://localhost:5433/gestalt_eval_test", config.targetDbUrl());
         assertEquals("eval_user", config.targetDbUser());
@@ -77,6 +80,16 @@ class EvalConfigTest {
         assertEquals("user:tester", config.portraitOwner());
         assertEquals("project:gestalt", config.portraitProject());
         assertEquals("data/points.test.jsonl", config.datasetFile());
+    }
+
+    @Test
+    void legacySingleDayFillsBothBounds() throws IOException {
+        Path file = tempDir.resolve("legacy.properties");
+        Files.writeString(file, "source.day=2026-08-01");
+        EvalConfig config = EvalConfig.load(file);
+
+        assertEquals("2026-08-01", config.sourceDayFrom());
+        assertEquals("2026-08-01", config.sourceDayTo());
     }
 
     @Test

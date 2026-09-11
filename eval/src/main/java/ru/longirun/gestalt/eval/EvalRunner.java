@@ -36,16 +36,51 @@ public final class EvalRunner {
 
     public static void main(String[] args) throws Exception {
         String step = args.length > 0 ? args[0] : "all";
-        EvalConfig config = EvalConfig.load(resolve("eval/local.properties"));
+        EvalConfig config = EvalConfig.load(EvalPaths.resolve("eval/local.properties"));
 
         switch (step) {
             case "replay" -> runReplay(config);
+            case "candidates" -> runCandidates(config, args);
             case "arms" -> runArms(config);
             case "oracles" -> runOracles(config);
             case "report" -> runReport(config);
             case "all" -> runAll(config);
             default -> throw new IllegalArgumentException("unknown step: " + step);
         }
+    }
+
+    /**
+     * Выгрузка реплик дня в eval/data/candidates.jsonl для ручного просмотра и viewer'а
+     * (план 31 §E2): `run -Pargs='candidates <session>'`; день — source.day конфига.
+     * Перезаписывает файл: день статичен (прошлое лога), выгрузка детерминирована.
+     */
+    private static void runCandidates(EvalConfig config, String[] args) throws Exception {
+        if (args.length < 2 || args[1].isBlank()) {
+            throw new IllegalArgumentException("usage: candidates <sourceSession>");
+        }
+        String sourceSession = args[1];
+        List<RawMessage> log = readLog(config, sourceSession);
+        if (log.isEmpty()) {
+            throw new IllegalStateException("no messages for session '%s' in %s..%s: check source.db.* and source.day-from/to"
+                    .formatted(sourceSession, config.sourceDayFrom(), config.sourceDayTo()));
+        }
+        Path out = EvalPaths.evalDir().resolve("data/candidates.jsonl");
+        Files.createDirectories(out.getParent());
+        StringBuilder sb = new StringBuilder();
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        for (RawMessage m : log) {
+            com.fasterxml.jackson.databind.node.ObjectNode node = mapper.createObjectNode();
+            node.put("id", m.id());
+            node.put("session", m.sessionName());
+            node.put("peer", m.peerName());
+            node.put("tokens", m.tokenCount());
+            node.put("time", m.createdAt() == null ? null : m.createdAt().toString());
+            node.put("content", m.content());
+            sb.append(mapper.writeValueAsString(node)).append('\n');
+        }
+        Files.writeString(out, sb.toString());
+        System.out.printf("[CANDIDATES] session '%s', %s..%s: %d message(s) -> %s%n",
+                sourceSession, config.sourceDayFrom(), config.sourceDayTo(), log.size(), out.normalize());
     }
 
     /**
@@ -63,9 +98,9 @@ public final class EvalRunner {
             throw new IllegalStateException("portrait.owner and portrait.project must be set in local.properties");
         }
 
-        List<EvalPoint> points = EvalDataset.load(resolve(config.datasetFile()));
+        List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(config.datasetFile()));
         Map<String, List<EvalPoint>> bySession = groupBySession(points);
-        Path snapshotsDir = evalDir().resolve("out/snapshots");
+        Path snapshotsDir = EvalPaths.evalDir().resolve("out/snapshots");
 
         int written = 0;
         int skipped = 0;
@@ -186,18 +221,19 @@ public final class EvalRunner {
     private static List<RawMessage> readLog(EvalConfig config, String sourceSession) throws Exception {
         if (!config.sourceFixture().isBlank()) {
             System.out.printf("[REPLAY] Reading fixture %s...%n", config.sourceFixture());
-            MessageSource source = new FixtureSource(resolve(config.sourceFixture()));
+            MessageSource source = new FixtureSource(EvalPaths.resolve(config.sourceFixture()));
             return source.read();
         }
-        if (config.sourceDbUrl().isBlank() || config.sourceDay().isBlank()) {
-            throw new IllegalStateException("source.fixture or (source.db.url + source.day) required");
+        if (config.sourceDbUrl().isBlank() || config.sourceDayFrom().isBlank()) {
+            throw new IllegalStateException("source.fixture or (source.db.url + source.day-from[/to]) required");
         }
         return new HonchoPgSource(
                 config.sourceDbUrl(),
                 config.sourceDbUser(),
                 config.sourceDbPassword(),
                 sourceSession,
-                config.sourceDay()).read();
+                config.sourceDayFrom(),
+                config.sourceDayTo().isBlank() ? config.sourceDayFrom() : config.sourceDayTo()).read();
     }
 
     private static void writeAtomically(Path target, String content) throws IOException {
@@ -205,40 +241,5 @@ public final class EvalRunner {
         Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
         Files.writeString(tmp, content);
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-    }
-
-    /** Директория модуля eval: cwd у gradle-run = eval/, ручной запуск — из корня репо. */
-    private static Path evalDir() {
-        Path cwd = Path.of("").toAbsolutePath();
-        if (Files.exists(cwd.resolve("settings.gradle"))) {
-            return cwd;
-        }
-        return cwd.resolve("eval");
-    }
-
-    /**
-     * Пути конфига репо-относительны; запуск возможен и из корня репо, и из eval/
-     * (у gradle-run cwd = eval/). Проверяем как есть, без префикса, от корня репо и с префиксом.
-     */
-    private static Path resolve(String repoRelativePath) {
-        Path path = Path.of(repoRelativePath);
-        if (Files.exists(path)) {
-            return path;
-        }
-        if (repoRelativePath.startsWith("eval/")) {
-            Path stripped = Path.of(repoRelativePath.substring("eval/".length()));
-            if (Files.exists(stripped)) {
-                return stripped;
-            }
-        }
-        Path fromEvalCwd = Path.of("..").resolve(repoRelativePath).normalize();
-        if (Files.exists(fromEvalCwd)) {
-            return fromEvalCwd;
-        }
-        Path withPrefix = Path.of("eval").resolve(repoRelativePath);
-        if (Files.exists(withPrefix)) {
-            return withPrefix;
-        }
-        return path;
     }
 }

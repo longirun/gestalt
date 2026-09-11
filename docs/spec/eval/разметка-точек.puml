@@ -1,0 +1,25 @@
+@startuml разметка-точек
+title Разметка с конца: паттерн → развилка (Р45)
+start
+:Паттерн — знание о юзере/проекте,\nвидное в конце лога;
+if (Выводим из префикса?\n(проверяет человек)) then (нет)
+  :reject: poor-log;
+  stop
+endif
+:Развилка M — реплика, где хороший ответ\nзависит от знания паттерна;
+if (Развилка есть?) then (нет)
+  :reject: no-fork;
+  stop
+endif
+:W-проверка (авто, по слепкам M и W0);
+if (Факт-паттерн в слепке на M?\nРождение вне окна?) then (да)
+  :Билет: pattern, trigger, truth,\nmust/mustNot, coverage;
+  stop
+else (нет)
+  :reject: encoding / in-window;
+  stop
+endif
+legend right
+  Позиции T, W0, M — см. таймлайн-точки.puml
+endlegend
+@enduml

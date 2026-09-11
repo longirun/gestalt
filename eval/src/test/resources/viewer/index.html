@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Gestalt eval — marking workbench (E2)</title>
+<style>
+  :root {
+    --bg: #16181d; --panel: #1e2128; --line: #2d313a; --text: #d7dae0; --dim: #8b93a1;
+    --accent: #7aa2f7; --ok: #9ece6a; --warn: #e0af68; --err: #f7768e; --mark: #3d2f14;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13px/1.45 "JetBrains Mono", "SF Mono", Consolas, monospace; }
+  header { display: flex; gap: 16px; align-items: baseline; padding: 10px 16px;
+           border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  header h1 { font-size: 14px; margin: 0; color: var(--accent); }
+  .stats { color: var(--dim); }
+  .stats b { color: var(--text); }
+  button { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+           border-radius: 4px; padding: 4px 10px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #16181d; border-color: var(--accent); font-weight: 600; }
+  button.reject { border-color: var(--err); color: var(--err); }
+  input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line);
+                             border-radius: 4px; padding: 4px 6px; font: inherit; }
+  main { display: grid; grid-template-columns: minmax(420px, 1fr) minmax(480px, 1.2fr);
+         gap: 12px; padding: 12px 16px; align-items: start; }
+  .col { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .col h2 { font-size: 12px; margin: 0; padding: 8px 12px; color: var(--dim);
+            border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: .08em; }
+  .messages { max-height: calc(100vh - 90px); overflow-y: auto; }
+  .msg { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .msg:hover { background: #232730; }
+  .msg.selected { background: #252b3a; border-left: 3px solid var(--accent); }
+  .msg .meta { color: var(--dim); font-size: 11px; display: flex; gap: 8px; }
+  .msg .badge { padding: 0 5px; border-radius: 3px; }
+  .badge.user { background: #1f3a5f; color: #7aa2f7; }
+  .badge.assistant { background: #24503a; color: #9ece6a; }
+  .badge.marked { background: #3d2f14; color: var(--warn); }
+  .msg .content { white-space: pre-wrap; word-break: break-word; max-height: 60px; overflow: hidden; }
+  .day-header { padding: 6px 12px 3px; color: var(--accent); font-size: 11px; font-weight: 600;
+                letter-spacing: .1em; border-top: 1px solid var(--line); background: #191c23;
+                position: sticky; top: 0; }
+  .workbench { padding: 12px; display: none; }
+  .section { margin-bottom: 14px; }
+  .section h3 { font-size: 11px; color: var(--dim); text-transform: uppercase;
+                letter-spacing: .08em; margin: 0 0 6px; }
+  .ctx { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .ctx .row { padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
+  .ctx .row:last-child { border-bottom: none; }
+  .ctx .row .who { color: var(--dim); font-size: 11px; }
+  .ctx .window { background: #1b1f27; }
+  .ctx .trigger { background: #252b3a; border-left: 3px solid var(--accent); }
+  .ctx .future { background: #1f241b; border-left: 3px solid var(--ok); }
+  .snapshot .fact { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; }
+  .snapshot .fact .spo { color: var(--accent); font-size: 12px; }
+  .snapshot .fact .meta { color: var(--dim); font-size: 11px; }
+  .snapshot .sec-title { color: var(--warn); margin: 8px 0 4px; font-size: 12px; }
+  mark { background: var(--mark); color: var(--warn); border-radius: 2px; padding: 0 1px; }
+  form .field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+  form label { color: var(--dim); font-size: 11px; }
+  form textarea { min-height: 44px; resize: vertical; }
+  .row-flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .verdicts { border-top: 1px dashed var(--line); padding-top: 10px; }
+  .hint { color: var(--dim); font-size: 11px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line);
+           white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
+  th { color: var(--dim); font-weight: 400; font-size: 11px; }
+  td.wrap { white-space: normal; }
+  #bottom { margin: 0 16px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .empty { color: var(--dim); padding: 20px; text-align: center; }
+  .flash { position: fixed; bottom: 16px; right: 16px; background: var(--panel); border: 1px solid var(--accent);
+           border-radius: 6px; padding: 8px 14px; display: none; z-index: 10; }
+</style>
+</head>
+<body>
+<header>
+  <h1>eval · разметка E2</h1>
+  <span class="stats" id="stats"></span>
+  <span style="flex:1"></span>
+  <label class="hint">окно N <input id="windowN" type="number" min="1" max="20" value="5" style="width:48px"></label>
+  <button onclick="loadAll()">⟳ reload</button>
+</header>
+
+<main>
+  <div class="col">
+    <h2>Реплики дня <span class="hint" id="dayInfo"></span></h2>
+    <div class="messages" id="messages"></div>
+  </div>
+
+  <div class="col">
+    <h2>Кандидат</h2>
+    <div class="workbench" id="workbench">
+      <div class="section">
+        <h3>Контекст <span class="hint">(окно — то, что видят плечи; будущее — источник истины)</span></h3>
+        <div class="ctx" id="context"></div>
+      </div>
+      <div class="section">
+        <h3>Слепок на T <span class="hint" id="snapshotHint"></span></h3>
+        <div class="snapshot" id="snapshot"></div>
+      </div>
+      <div class="section">
+        <h3>Точка</h3>
+        <form id="pointForm" onsubmit="return false">
+          <div class="row-flex">
+            <div class="field" style="flex:1"><label>id</label><input id="f-id" style="width:100%"></div>
+            <div class="field"><label>уровень</label>
+              <select id="f-level"><option>L1</option><option>C</option></select></div>
+          </div>
+          <div class="field"><label>trigger — запрос юзера в T</label><textarea id="f-trigger"></textarea></div>
+          <div class="field"><label>truth — что юзер реально сделал дальше (из «будущего»)</label>
+            <textarea id="f-truth" oninput="renderSnapshot()"></textarea></div>
+          <div class="row-flex">
+            <div class="field" style="flex:1"><label>must (через запятую)</label>
+              <input id="f-must" style="width:100%"></div>
+            <div class="field" style="flex:1"><label>mustNot (для C — маркеры утечки)</label>
+              <input id="f-mustNot" style="width:100%"></div>
+          </div>
+          <div class="field"><label>coverage — W-обоснование: чем слепок покрывает истину</label>
+            <textarea id="f-coverage"></textarea></div>
+          <div class="row-flex">
+            <button class="primary" id="saveBtn" onclick="savePoint()">сохранить точку</button>
+            <span class="hint" id="saveHint"></span>
+          </div>
+        </form>
+      </div>
+      <div class="section verdicts">
+        <h3>Вердикт по кандидату → журнал</h3>
+        <div class="row-flex">
+          <button onclick="journal('taken', '')">✔ взят</button>
+          <button class="reject" onclick="journal('rejected', 'poor-log')">✘ лог бедный</button>
+          <button class="reject" onclick="journal('rejected', 'encoding')">✘ encoding не извлёк</button>
+          <button class="reject" onclick="journal('rejected', 'noise')">✘ мусор</button>
+        </div>
+        <p class="hint">Вердикт пишется один раз на кандидата. Отсев — точку из датасета убрать руками.</p>
+      </div>
+    </div>
+    <div class="empty" id="noSelection">← выбери реплику-кандидата</div>
+  </div>
+</main>
+
+<div id="bottom">
+  <div class="col">
+    <h2>Точки датасета</h2>
+    <table id="pointsTable"></table>
+  </div>
+  <div class="col">
+    <h2>Журнал разметки</h2>
+    <table id="journalTable"></table>
+  </div>
+</div>
+<div class="flash" id="flash"></div>
+
+<script>
+"use strict";
+const state = { day: [], points: [], snapshots: [], journal: [], selected: null };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const norm = (s) => esc(s).toLowerCase().replaceAll("ё", "е");
+
+async function loadAll() {
+  const [day, points, snapshots, journal] = await Promise.all([
+    fetch("/api/day").then(parseJsonl), fetch("/api/points").then(parseJsonl),
+    fetch("/api/snapshots").then(r => r.json()), fetch("/api/journal").then(parseJsonl)
+  ]);
+  state.day = day; state.points = points; state.snapshots = snapshots; state.journal = journal;
+  if (state.selected) {
+    const again = state.day.find(m => m.id === state.selected.id);
+    state.selected = again || null;
+  }
+  renderMessages(); renderBottom(); renderStats();
+  if (state.selected) select(state.selected.id); 
+}
+
+async function parseJsonl(resp) {
+  const text = await resp.text();
+  return text.split("\n").filter(l => l.trim()).map(l => { try { return JSON.parse(l); } catch { return null; } })
+             .filter(Boolean);
+}
+
+function renderStats() {
+  const l1 = state.points.filter(p => p.level === "L1").length;
+  const c = state.points.filter(p => p.level === "C").length;
+  const taken = state.journal.filter(j => j.verdict === "taken").length;
+  const rejected = state.journal.filter(j => j.verdict === "rejected").length;
+  const constr = (taken + rejected) ? Math.round(100 * taken / (taken + rejected)) : "—";
+  $("stats").innerHTML =
+    `точек: <b>${l1} L1</b> + <b>${c} C</b> · просмотрено: <b>${taken + rejected}</b> · конструируемость: <b>${constr}%</b>`;
+  const seen = new Set(state.journal.map(j => j.candidateId));
+  const unreviewed = state.day.length - seen.size;
+  $("dayInfo").textContent = state.day.length ? `· ${state.day.length} реплик · не просмотрено: ${unreviewed}` : "· пусто";
+}
+
+function pointAt(msg) {
+  return state.points.find(p => p.sourceMessageId === msg.id && p.sourceSession === msg.session);
+}
+
+function renderMessages() {
+  const seenVerdicts = new Map(state.journal.map(j => [j.candidateId, j]));
+  let html = "";
+  let lastDay = null;
+  for (const m of state.day) {
+    const day = (m.time || "").slice(0, 10);
+    if (day && day !== lastDay) {
+      const dayCount = state.day.filter(x => (x.time || "").slice(0, 10) === day).length;
+      html += `<div class="day-header">${esc(day)} · ${dayCount} реплик</div>`;
+      lastDay = day;
+    }
+    const p = pointAt(m);
+    const v = seenVerdicts.get(m.id);
+    const marks = [
+      p ? `<span class="badge marked">${p.level} ${esc(p.id)}</span>` : "",
+      v ? `<span class="badge marked">${v.verdict === "taken" ? "✔" : "✘ " + esc(v.reason || "")}</span>` : ""
+    ].join(" ");
+    html += `<div class="msg ${state.selected?.id === m.id ? "selected" : ""}" onclick="select(${m.id})">
+      <div class="meta"><span>#${m.id}</span><span class="badge ${m.peer}">${esc(m.peer)}</span>
+        <span>${esc((m.time || "").slice(11, 19))}</span><span>${m.tokens ?? ""}t</span>${marks}</div>
+      <div class="content">${esc(m.content)}</div></div>`;
+  }
+  $("messages").innerHTML = html || `<div class="empty">candidates.jsonl пуст — прогони:<br>run -Pargs='candidates &lt;session&gt;'</div>`;
+}
+
+function select(id) {
+  const msg = state.day.find(m => m.id === id);
+  if (!msg) return;
+  state.selected = msg;
+  $("noSelection").style.display = "none";
+  $("workbench").style.display = "block";
+  renderMessages();
+  renderContext();
+  const p = pointAt(msg);
+  if (p) {
+    $("f-id").value = p.id; $("f-level").value = p.level; $("f-trigger").value = p.trigger;
+    $("f-truth").value = p.truth; $("f-must").value = (p.must || []).join(", ");
+    $("f-mustNot").value = (p.mustNot || []).join(", "); $("f-coverage").value = p.coverage || "";
+    $("saveBtn").style.display = "none";
+    $("saveHint").textContent = "точка существует — правки руками в jsonl, потом ⟳";
+  } else {
+    $("f-id").value = `L1-${msg.id}`; $("f-level").value = "L1"; $("f-trigger").value = msg.content;
+    $("f-truth").value = ""; $("f-must").value = ""; $("f-mustNot").value = ""; $("f-coverage").value = "";
+    $("saveBtn").style.display = "";
+    $("saveHint").textContent = "";
+  }
+  renderSnapshot();
+}
+
+function renderContext() {
+  const m = state.selected;
+  const n = Math.max(1, parseInt($("windowN").value) || 5);
+  const idx = state.day.findIndex(x => x.id === m.id);
+  const windowMsgs = state.day.slice(Math.max(0, idx - n), idx);
+  const future = state.day.slice(idx + 1, idx + 6);
+  const row = (msg, cls) =>
+    `<div class="row ${cls}"><div class="who">#${msg.id} · ${esc(msg.peer)}</div>${esc(msg.content)}</div>`;
+  $("context").innerHTML =
+    windowMsgs.map(x => row(x, "window")).join("") +
+    `<div class="row trigger"><div class="who">#${m.id} · T · триггер</div>${esc(m.content)}</div>` +
+    (future.length ? `<div class="row future"><div class="who">будущее (истина отсюда)</div></div>` +
+      future.map(x => row(x, "future")).join("")
+      : `<div class="row"><div class="who">будущего нет — конец лога</div></div>`);
+}
+
+function truthTerms() {
+  return norm($("f-truth").value).split(/[^a-zа-я0-9_.-]+/)
+    .filter(w => w.length >= 3 && !["при", "для", "это", "как", "что", "the", "and"].includes(w));
+}
+
+function highlight(text) {
+  const terms = [...new Set(truthTerms())];
+  if (!terms.length) return esc(text);
+  // разметка вхождений по нормализованной копии: текст и термы уже экранированы/нормализованы одинаково
+  const lowered = norm(text);
+  const marks = new Array(text.length).fill(false);
+  for (const term of terms) {
+    let from = 0;
+    while (true) {
+      const at = lowered.indexOf(term, from);
+      if (at < 0) break;
+      for (let k = at; k < at + term.length; k++) marks[k] = true;
+      from = at + term.length;
+    }
+  }
+  let out = "", buf = "";
+  for (let k = 0; k < text.length; k++) {
+    const ch = esc(text[k]);
+    if (marks[k]) { buf += ch; }
+    else { if (buf) { out += "<mark>" + buf + "</mark>"; buf = ""; } out += ch; }
+  }
+  if (buf) out += "<mark>" + buf + "</mark>";
+  return out;
+}
+
+async function renderSnapshot() {
+  const m = state.selected;
+  if (!m) return;
+  const p = pointAt(m);
+  const box = $("snapshot");
+  if (!p) {
+    $("snapshotHint").textContent = "";
+    box.innerHTML = `<p class="hint">Точки на T=${m.id} нет — сохрани черновик, прогони replay, потом ⟳.</p>`;
+    return;
+  }
+  if (!state.snapshots.includes(p.id)) {
+    $("snapshotHint").textContent = "";
+    box.innerHTML = `<p class="hint">Слепка ${esc(p.id)} нет — прогони replay, потом ⟳.</p>`;
+    return;
+  }
+  const snap = await fetch(`/api/snapshot/${encodeURIComponent(p.id)}`).then(r => r.json());
+  $("snapshotHint").textContent = `(${esc(p.id)} · подсветка = слова truth)`;
+  const section = (title, facts) => !facts?.length ? "" :
+    `<div class="sec-title">${title}</div>` + facts.map(f => `
+      <div class="fact">
+        <div class="spo">${highlight(f.subject || "")} · ${highlight(f.predicate || "")} · ${highlight(f.object || "")}</div>
+        ${f.statement ? `<div>${highlight(f.statement)}</div>` : ""}
+        <div class="meta">подкрепления: ${f.reinforcement_count ?? "?"}</div>
+      </div>`).join("");
+  box.innerHTML =
+    section("critical", snap.critical) + section("constructs", snap.constructs) + section("preferences", snap.preferences) ||
+    `<p class="hint">слепок пуст</p>`;
+}
+
+async function savePoint() {
+  const m = state.selected;
+  if (!m) return;
+  const payload = {
+    id: $("f-id").value.trim(), level: $("f-level").value,
+    sourceSession: m.session, sourceMessageId: m.id,
+    trigger: $("f-trigger").value.trim(), truth: $("f-truth").value.trim(),
+    must: splitList($("f-must").value), mustNot: splitList($("f-mustNot").value),
+    coverage: $("f-coverage").value.trim() || null
+  };
+  const resp = await post("/api/point", payload);
+  flash(resp.error ? "✘ " + resp.error : "✔ точка сохранена: " + payload.id);
+  if (!resp.error) await loadAll();
+}
+
+async function journal(verdict, reason) {
+  const m = state.selected;
+  if (!m) return;
+  const p = pointAt(m);
+  const payload = { candidateId: m.id, verdict, reason: reason || null, pointId: p ? p.id : null };
+  const resp = await post("/api/journal", payload);
+  flash(resp.error ? "✘ " + resp.error : "✔ журнал: " + verdict + (reason ? " / " + reason : ""));
+  if (!resp.error) await loadAll();
+}
+
+const splitList = (s) => s.split(",").map(x => x.trim()).filter(Boolean);
+
+async function post(url, body) {
+  const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                                 body: JSON.stringify(body) });
+  return resp.json();
+}
+
+function renderBottom() {
+  $("pointsTable").innerHTML = state.points.length
+    ? "<tr><th>id</th><th>lvl</th><th>T</th><th>trigger</th><th>must/mustNot</th><th>coverage</th></tr>" +
+      state.points.map(p => `<tr>
+        <td>${esc(p.id)}</td><td>${esc(p.level)}</td><td>${p.sourceMessageId}</td>
+        <td class="wrap">${esc(p.trigger)}</td>
+        <td>${(p.must || []).length}/${(p.mustNot || []).length}</td>
+        <td class="wrap">${p.coverage ? esc(p.coverage) : "<span class='hint'>—</span>"}</td></tr>`).join("")
+    : `<tr><td class="empty">пусто</td></tr>`;
+  $("journalTable").innerHTML = state.journal.length
+    ? "<tr><th>кандидат</th><th>вердикт</th><th>причина</th><th>точка</th><th>время</th></tr>" +
+      state.journal.slice().reverse().map(j => `<tr>
+        <td>${j.candidateId}</td>
+        <td>${j.verdict === "taken" ? "✔ взят" : "✘ отсев"}</td>
+        <td>${esc(j.reason || "")}</td><td>${esc(j.pointId || "")}</td>
+        <td>${esc((j.at || "").slice(5, 16).replace("T", " "))}</td></tr>`).join("")
+    : `<tr><td class="empty">пусто</td></tr>`;
+}
+
+let flashTimer;
+function flash(text) {
+  const el = $("flash");
+  el.textContent = text; el.style.display = "block";
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => el.style.display = "none", 3500);
+}
+
+$("windowN").addEventListener("change", renderContext);
+loadAll();
+</script>
+</body>
+</html>

@@ -9,7 +9,7 @@ import java.util.Properties;
 /** Конфиг eval: eval/local.properties (вне VCS) + env-переопределения (LLM_API_KEY). */
 public record EvalConfig(
         String sourceDbUrl, String sourceDbUser, String sourceDbPassword,
-        String sourceDay, String sourceFixture,
+        String sourceDayFrom, String sourceDayTo, String sourceFixture,
         String targetDbUrl, String targetDbUser, String targetDbPassword,
         String llmBaseUrl, String llmApiKey, String llmModel, String llmReasoningEffort,
         int batchMaxMessages, int batchMaxTokens,
@@ -27,11 +27,16 @@ public record EvalConfig(
         if (System.getenv("LLM_API_KEY") != null) {
             apiKey = System.getenv("LLM_API_KEY");
         }
+        // source.day — одиночный день (устаревший вариант); source.day-from/to — диапазон включительно
+        String day = props.getProperty("source.day", "");
+        String dayFrom = props.getProperty("source.day-from", day);
+        String dayTo = props.getProperty("source.day-to", day);
         return new EvalConfig(
                 props.getProperty("source.db.url", ""),
                 props.getProperty("source.db.user", ""),
                 props.getProperty("source.db.password", ""),
-                props.getProperty("source.day", ""),
+                dayFrom,
+                dayTo,
                 props.getProperty("source.fixture", ""),
                 props.getProperty("target.db.url", "jdbc:postgresql://localhost:5433/gestalt_eval"),
                 props.getProperty("target.db.user", ""),
