@@ -50,5 +50,11 @@ Thumbs.db
 spike/local.properties
 spike/data/
 
+# Eval Р45: secrets, live logs, run outputs incl. кэш плеча B (docs/spec/28 §3.3)
+eval/local.properties
+eval/data/
+eval/out/
+
 # Gradle wrapper внутри spike (корневой шаблон anchored)
 !spike/gradle/wrapper/gradle-wrapper.jar
+!eval/gradle/wrapper/gradle-wrapper.jar

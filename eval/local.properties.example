@@ -1,0 +1,9 @@
+# Replay живого лога: только чтение (read-only пользователь обязателен)
+source.db.url=jdbc:postgresql://localhost:5433/honcho_memory
+source.db.user=gestalt_ro
+source.db.password=
+
+# Хост плеч (одна модель в обоих): OpenAI-совместимый роутер; ключ можно передать env LLM_API_KEY
+llm.base-url=https://routerai.ru/api/v1
+llm.api-key=
+llm.model=deepseek/deepseek-v4-flash-0731

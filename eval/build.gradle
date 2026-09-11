@@ -1,0 +1,42 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'ru.longirun'
+version = '0.1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+application {
+    mainClass = 'ru.longirun.gestalt.eval.EvalRunner'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // replay живого лога (read-only, Honcho PG :5433) — как в спайке
+    implementation 'org.postgresql:postgresql:42.7.4'
+    // точки датасета и отчёты прогонов
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// проброс CLI-аргументов: ./gradlew run -Pargs='<step>'
+tasks.named('run') {
+    if (project.hasProperty('args')) {
+        args(project.property('args').toString().split(' '))
+    }
+}
