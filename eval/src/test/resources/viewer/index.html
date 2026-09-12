@@ -2,176 +2,317 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Gestalt eval — marking workbench (E2)</title>
+<title>Gestalt eval — досье точек (E2+)</title>
 <style>
   :root {
-    --bg: #16181d; --panel: #1e2128; --line: #2d313a; --text: #d7dae0; --dim: #8b93a1;
-    --accent: #7aa2f7; --ok: #9ece6a; --warn: #e0af68; --err: #f7768e; --mark: #3d2f14;
+    --bg: #f4f5f7; --panel: #ffffff; --line: #d8dce3; --text: #2b303a; --dim: #71798a;
+    --accent: #2b6fd6; --ok: #237a46; --warn: #9a6b00; --err: #c4384e; --mark: #ffe9b3;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 13px/1.45 "JetBrains Mono", "SF Mono", Consolas, monospace; }
-  header { display: flex; gap: 16px; align-items: baseline; padding: 10px 16px;
-           border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  header { display: flex; gap: 14px; align-items: baseline; padding: 10px 16px;
+           border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg);
+           z-index: 5; flex-wrap: wrap; }
   header h1 { font-size: 14px; margin: 0; color: var(--accent); }
+  .tabs { display: flex; gap: 4px; }
+  .tab { padding: 2px 12px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+         color: var(--dim); background: var(--panel); }
+  .tab:hover { border-color: var(--accent); }
+  .tab.active { color: var(--accent); border-color: var(--accent); background: #e4edfb; font-weight: 600; }
   .stats { color: var(--dim); }
   .stats b { color: var(--text); }
   button { background: var(--panel); color: var(--text); border: 1px solid var(--line);
            border-radius: 4px; padding: 4px 10px; cursor: pointer; font: inherit; }
   button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); color: #16181d; border-color: var(--accent); font-weight: 600; }
+  button.primary { background: var(--accent); color: #ffffff; border-color: var(--accent); font-weight: 600; }
   button.reject { border-color: var(--err); color: var(--err); }
   input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--line);
                              border-radius: 4px; padding: 4px 6px; font: inherit; }
-  main { display: grid; grid-template-columns: minmax(420px, 1fr) minmax(480px, 1.2fr);
+  main { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(500px, 1.3fr);
          gap: 12px; padding: 12px 16px; align-items: start; }
   .col { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
   .col h2 { font-size: 12px; margin: 0; padding: 8px 12px; color: var(--dim);
             border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: .08em; }
-  .messages { max-height: calc(100vh - 90px); overflow-y: auto; }
+  .col.left { position: sticky; top: 52px; max-height: calc(100vh - 66px); display: flex; flex-direction: column; }
+  .list { overflow-y: auto; }
+  .hint { color: var(--dim); font-size: 11px; }
+  .empty { color: var(--dim); padding: 20px; text-align: center; }
+
+  /* ── левый список: режим «точки» ── */
+  .pl-group { padding: 6px 12px 3px; color: var(--accent); font-size: 11px; font-weight: 600;
+              letter-spacing: .08em; text-transform: uppercase; border-top: 1px solid var(--line);
+              background: #e9ecf1; position: sticky; top: 0; z-index: 1; }
+  .pl-group:first-child { border-top: none; }
+  .pl-item { padding: 6px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .pl-item:hover { background: #eef0f4; }
+  .pl-item.active { background: #e4edfb; border-left: 3px solid var(--accent); }
+  .pl-line { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .pl-sub { color: var(--dim); font-size: 11px; margin-top: 2px; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; }
+  .mark.ok { color: var(--ok); font-weight: 600; }
+  .mark.err { color: var(--err); font-weight: 600; }
+  .st { font-size: 11px; padding: 0 5px; border-radius: 3px; }
+  .st.ok { color: var(--ok); } .st.err { color: var(--err); }
+  .st.warn { color: var(--warn); } .st.dim { color: var(--dim); }
+
+  /* ── левый список: режим «лог» ── */
   .msg { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
-  .msg:hover { background: #232730; }
-  .msg.selected { background: #252b3a; border-left: 3px solid var(--accent); }
-  .msg .meta { color: var(--dim); font-size: 11px; display: flex; gap: 8px; }
+  .msg:hover { background: #eef0f4; }
+  .msg.selected { background: #e4edfb; border-left: 3px solid var(--accent); }
+  .msg .meta { color: var(--dim); font-size: 11px; display: flex; gap: 8px; flex-wrap: wrap; }
   .msg .badge { padding: 0 5px; border-radius: 3px; }
-  .badge.user { background: #1f3a5f; color: #7aa2f7; }
-  .badge.assistant { background: #24503a; color: #9ece6a; }
-  .badge.marked { background: #3d2f14; color: var(--warn); }
+  .badge.user { background: #dce8fc; color: #2b6fd6; }
+  .badge.assistant { background: #d9f1e1; color: #237a46; }
+  .badge.marked { background: #fdeecb; color: var(--warn); }
+  .badge.db { background: #e9e3f8; color: #6b4fc0; }
+  .badge.pass { background: #d9f1e1; color: var(--ok); }
+  .badge.fail { background: #fbe3e8; color: var(--err); }
+  .badge.dim2 { background: #eef0f4; color: var(--dim); }
+  .badge.ev { background: #d9f1e1; color: var(--ok); }
   .msg .content { white-space: pre-wrap; word-break: break-word; max-height: 60px; overflow: hidden; }
   .day-header { padding: 6px 12px 3px; color: var(--accent); font-size: 11px; font-weight: 600;
-                letter-spacing: .1em; border-top: 1px solid var(--line); background: #191c23;
-                position: sticky; top: 0; }
-  .workbench { padding: 12px; display: none; }
+                letter-spacing: .1em; border-top: 1px solid var(--line); background: #e9ecf1;
+                position: sticky; top: 0; z-index: 1; }
+  .msg.ping { animation: ping 1.6s ease-out; }
+  @keyframes ping { 0% { background: #ffe9b3; } 100% { background: transparent; } }
+
+  /* ── досье ── */
+  .dossier { padding: 12px; }
   .section { margin-bottom: 14px; }
   .section h3 { font-size: 11px; color: var(--dim); text-transform: uppercase;
                 letter-spacing: .08em; margin: 0 0 6px; }
-  .ctx { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .ctx .row { padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
-  .ctx .row:last-child { border-bottom: none; }
-  .ctx .row .who { color: var(--dim); font-size: 11px; }
-  .ctx .window { background: #1b1f27; }
-  .ctx .trigger { background: #252b3a; border-left: 3px solid var(--accent); }
-  .ctx .future { background: #1f241b; border-left: 3px solid var(--ok); }
+  details.section { border: 1px dashed var(--line); border-radius: 6px; padding: 6px 10px; }
+  details.section summary { color: var(--dim); cursor: pointer; font-size: 11px; text-transform: uppercase;
+                            letter-spacing: .08em; }
+  details.section[open] summary { margin-bottom: 8px; }
+  details.sub { border: 1px dashed var(--line); border-radius: 6px; padding: 4px 10px; margin-top: 8px; }
+  details.sub summary { color: var(--dim); cursor: pointer; font-size: 11px; }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: #f8f9fb; }
+  .card-head { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; flex-wrap: wrap; }
+  .lvl { padding: 0 6px; border-radius: 3px; font-weight: 600; }
+  .lvl.L1 { background: #dce8fc; color: #2b6fd6; }
+  .lvl.C { background: #fdeecb; color: var(--warn); }
+  .kv { display: flex; gap: 8px; margin-bottom: 4px; }
+  .kv > span:first-child { color: var(--dim); min-width: 64px; text-transform: uppercase; font-size: 10px;
+                           letter-spacing: .06em; padding-top: 2px; }
+
+  /* таймлайн */
+  .tl { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .tl-zone { padding: 5px 10px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+             background: #e9ecf1; color: var(--dim); border-bottom: 1px solid var(--line); }
+  .tl-zone.win { color: var(--text); }
+  .tl-zone.fut { color: var(--ok); }
+  .tl-row { padding: 5px 10px; border-bottom: 1px solid var(--line); cursor: pointer; background: var(--panel); }
+  .tl-row:last-child { border-bottom: none; }
+  .tl-row .who { color: var(--dim); font-size: 11px; }
+  .tl-row .txt { white-space: pre-wrap; word-break: break-word; max-height: 60px; overflow: hidden; }
+  .tl-row.open .txt { max-height: none; }
+  .tl-row.prefix { background: #f6f7f9; }
+  .tl-row.window, .tl-row.w0 { background: #eef1f6; }
+  .tl-row.w0 { border-top: 2px dashed var(--accent); }
+  .tl-row.future { background: #e7f5eb; }
+  .tl-row.trigger { background: #e4edfb; border-left: 3px solid var(--accent); }
+  .tl-row.trigger .txt { font-weight: 600; }
+  .origin { padding: 8px 10px; border-top: 1px solid var(--line); font-size: 12px; }
+
+  /* факты / coverage */
   .snapshot .fact { border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; }
   .snapshot .fact .spo { color: var(--accent); font-size: 12px; }
   .snapshot .fact .meta { color: var(--dim); font-size: 11px; }
   .snapshot .sec-title { color: var(--warn); margin: 8px 0 4px; font-size: 12px; }
-  mark { background: var(--mark); color: var(--warn); border-radius: 2px; padding: 0 1px; }
+  .fact.pick { cursor: pointer; }
+  .fact.pick:hover { border-color: var(--accent); }
+  .ev { background: none; border: 1px dashed var(--line); border-radius: 3px; color: var(--dim);
+        padding: 0 4px; cursor: pointer; font: inherit; font-size: 11px; }
+  .ev:hover { color: var(--accent); border-color: var(--accent); }
+  .ev.zone-w { border-style: solid; color: var(--text); }
+  .ev.zone-m { color: var(--accent); border-color: var(--accent); }
+  .ev.zone-f { color: var(--ok); border-color: var(--ok); }
+  .ev.zone-o { opacity: .55; }
+  mark { background: var(--mark); color: #6b4a00; border-radius: 2px; padding: 0 1px; }
+
+  /* истина */
+  .truth-txt { white-space: pre-wrap; word-break: break-word; }
+  .chip-term { display: inline-block; border: 1px solid var(--ok); color: var(--ok); border-radius: 10px;
+               padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 12px; }
+  .chip-term.bad { border-color: var(--err); color: var(--err); }
+
+  /* A/B */
+  .arms { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .arm { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: #f8f9fb; }
+  .arm-text { white-space: pre-wrap; word-break: break-word; max-height: 280px; overflow: auto; margin: 6px 0; }
+  .arm .meta { color: var(--dim); font-size: 11px; }
+  .ab-miss { color: var(--warn); font-size: 12px; margin-top: 4px; }
+
+  /* форма / журнал */
   form .field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
   form label { color: var(--dim); font-size: 11px; }
   form textarea { min-height: 44px; resize: vertical; }
   .row-flex { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .verdicts { border-top: 1px dashed var(--line); padding-top: 10px; }
-  .hint { color: var(--dim); font-size: 11px; }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line);
            white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
   th { color: var(--dim); font-weight: 400; font-size: 11px; }
   td.wrap { white-space: normal; }
-  #bottom { margin: 0 16px 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .empty { color: var(--dim); padding: 20px; text-align: center; }
+  #bottom { margin: 0 16px 24px; }
   .flash { position: fixed; bottom: 16px; right: 16px; background: var(--panel); border: 1px solid var(--accent);
            border-radius: 6px; padding: 8px 14px; display: none; z-index: 10; }
 </style>
 </head>
 <body>
 <header>
-  <h1>eval · разметка E2</h1>
+  <h1>eval · точки</h1>
+  <div class="tabs">
+    <span class="tab active" id="tabPoints" onclick="setMode('points')">точки</span>
+    <span class="tab" id="tabLog" onclick="setMode('log')">лог разметки</span>
+  </div>
   <span class="stats" id="stats"></span>
   <span style="flex:1"></span>
   <label class="hint">окно N <input id="windowN" type="number" min="1" max="20" value="5" style="width:48px"></label>
+  <label class="hint" id="descWrap" style="display:none"><input id="descOrder" type="checkbox" checked> с конца</label>
   <button onclick="loadAll()">⟳ reload</button>
 </header>
 
 <main>
-  <div class="col">
-    <h2>Реплики дня <span class="hint" id="dayInfo"></span></h2>
-    <div class="messages" id="messages"></div>
+  <div class="col left">
+    <h2 id="leftTitle">Точки и кандидаты</h2>
+    <div class="list" id="leftList"></div>
   </div>
 
-  <div class="col">
-    <h2>Кандидат</h2>
-    <div class="workbench" id="workbench">
+  <div class="col right">
+    <h2 id="dosTitle">Досье</h2>
+    <div class="empty" id="noSelection">выбери точку слева · или реплику-кандидата в режиме «лог разметки»</div>
+    <div class="dossier" id="workbench" style="display:none">
       <div class="section">
-        <h3>Контекст <span class="hint">(окно — то, что видят плечи; будущее — источник истины)</span></h3>
-        <div class="ctx" id="context"></div>
+        <div id="dosHead"></div>
       </div>
       <div class="section">
-        <h3>Слепок на T <span class="hint" id="snapshotHint"></span></h3>
-        <div class="snapshot" id="snapshot"></div>
+        <h3>Таймлайн — до · окно · развилка · после</h3>
+        <div class="tl" id="context"></div>
+        <div id="origin"></div>
       </div>
       <div class="section">
-        <h3>Точка</h3>
+        <h3>Почему выбрана / отсеяна</h3>
+        <div id="why"></div>
+      </div>
+      <div class="section">
+        <h3>Какой контекст помогает</h3>
+        <div id="coverage"></div>
+        <div class="snapshot" id="validFacts"></div>
+      </div>
+      <div class="section">
+        <h3>Правильный ответ — истина</h3>
+        <div id="truth"></div>
+      </div>
+      <div class="section">
+        <h3>A/B — вклад портрета</h3>
+        <div id="ab"></div>
+        <details class="sub">
+          <summary>инъекция плеча A — слепок на M</summary>
+          <p class="hint" id="snapshotHint"></p>
+          <div class="snapshot" id="snapshot"></div>
+        </details>
+      </div>
+      <details class="section" id="prodSection">
+        <summary>Выводы в production-базе</summary>
+        <p class="hint" id="prodHint"></p>
+        <div class="snapshot" id="prodFacts"></div>
+      </details>
+      <details class="section">
+        <summary>Разметка точки — форма</summary>
         <form id="pointForm" onsubmit="return false">
           <div class="row-flex">
-            <div class="field" style="flex:1"><label>id</label><input id="f-id" style="width:100%"></div>
-            <div class="field"><label>уровень</label>
+            <div class="field" style="flex:1"><label for="f-id">id</label><input id="f-id" style="width:100%"></div>
+            <div class="field"><label for="f-level">уровень</label>
               <select id="f-level"><option>L1</option><option>C</option></select></div>
           </div>
-          <div class="field"><label>trigger — запрос юзера в T</label><textarea id="f-trigger"></textarea></div>
-          <div class="field"><label>truth — что юзер реально сделал дальше (из «будущего»)</label>
-            <textarea id="f-truth" oninput="renderSnapshot()"></textarea></div>
+          <div class="field"><label for="f-pattern">pattern — какое знание о юзере/проекте тестируем (шаг 1, до выбора M)</label>
+            <textarea id="f-pattern"></textarea></div>
+          <div class="field"><label for="f-trigger">trigger — реплика-развилка M</label><textarea id="f-trigger"></textarea></div>
+          <div class="field"><label for="f-truth">truth — что юзер реально сделал дальше (из «будущего»)</label>
+            <textarea id="f-truth"></textarea></div>
           <div class="row-flex">
-            <div class="field" style="flex:1"><label>must (через запятую)</label>
+            <div class="field" style="flex:1"><label for="f-must">must (через запятую)</label>
               <input id="f-must" style="width:100%"></div>
-            <div class="field" style="flex:1"><label>mustNot (для C — маркеры утечки)</label>
+            <div class="field" style="flex:1"><label for="f-mustNot">mustNot (для C — маркеры утечки)</label>
               <input id="f-mustNot" style="width:100%"></div>
           </div>
-          <div class="field"><label>coverage — W-обоснование: чем слепок покрывает истину</label>
+          <div class="field"><label for="f-coverage">coverage — факт слепка, покрывающий истину (кликни валидный факт выше)</label>
             <textarea id="f-coverage"></textarea></div>
           <div class="row-flex">
             <button class="primary" id="saveBtn" onclick="savePoint()">сохранить точку</button>
             <span class="hint" id="saveHint"></span>
           </div>
         </form>
-      </div>
-      <div class="section verdicts">
-        <h3>Вердикт по кандидату → журнал</h3>
+      </details>
+      <details class="section verdicts">
+        <summary>Вердикт по кандидату → журнал</summary>
         <div class="row-flex">
           <button onclick="journal('taken', '')">✔ взят</button>
-          <button class="reject" onclick="journal('rejected', 'poor-log')">✘ лог бедный</button>
-          <button class="reject" onclick="journal('rejected', 'encoding')">✘ encoding не извлёк</button>
-          <button class="reject" onclick="journal('rejected', 'noise')">✘ мусор</button>
+          <button class="reject" onclick="journal('rejected', 'poor-log')">✘ poor-log</button>
+          <button class="reject" onclick="journal('rejected', 'no-fork')">✘ no-fork</button>
+          <button class="reject" onclick="journal('rejected', 'in-window')">✘ in-window</button>
+          <button class="reject" onclick="journal('rejected', 'encoding')">✘ encoding</button>
+          <button class="reject" onclick="journal('rejected', 'noise')">✘ noise</button>
         </div>
-        <p class="hint">Вердикт пишется один раз на кандидата. Отсев — точку из датасета убрать руками.</p>
-      </div>
+        <p class="hint">poor-log — не выводимо из префикса; no-fork — знание не меняет ответ; in-window — происхождение
+          факта в окне; encoding — сигнала в слепке нет. Отсев — точку из датасета убрать руками.</p>
+      </details>
     </div>
-    <div class="empty" id="noSelection">← выбери реплику-кандидата</div>
   </div>
 </main>
 
 <div id="bottom">
   <div class="col">
-    <h2>Точки датасета</h2>
-    <table id="pointsTable"></table>
-  </div>
-  <div class="col">
-    <h2>Журнал разметки</h2>
-    <table id="journalTable"></table>
+    <details>
+      <summary class="hint" style="cursor:pointer">Журнал разметки</summary>
+      <table id="journalTable"></table>
+    </details>
   </div>
 </div>
 <div class="flash" id="flash"></div>
 
 <script>
 "use strict";
-const state = { day: [], points: [], snapshots: [], journal: [], selected: null };
+const state = { day: [], points: [], snapshots: [], journal: [], wcheck: [],
+  prodFacts: [], prodError: "", prodIrrelevant: false, answers: {}, oracles: [],
+  selected: null, listMode: "points" };
 
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const norm = (s) => esc(s).toLowerCase().replaceAll("ё", "е");
+const hint = (t) => `<p class="hint">${t}</p>`;
+const PREFIX_LEN = 10;
 
-async function loadAll() {
-  const [day, points, snapshots, journal] = await Promise.all([
-    fetch("/api/day").then(parseJsonl), fetch("/api/points").then(parseJsonl),
-    fetch("/api/snapshots").then(r => r.json()), fetch("/api/journal").then(parseJsonl)
-  ]);
-  state.day = day; state.points = points; state.snapshots = snapshots; state.journal = journal;
-  if (state.selected) {
-    const again = state.day.find(m => m.id === state.selected.id);
-    state.selected = again || null;
-  }
-  renderMessages(); renderBottom(); renderStats();
-  if (state.selected) select(state.selected.id); 
+const REJECT_NOTES = {
+  "poor-log": "не выводимо из префикса — лог бедный (диагноз канона §4.3: сменить/добрать источник)",
+  "no-fork": "знание не меняет ответ — плечи ответят одинаково",
+  "in-window": "происхождение факта в окне — плечо B видит то же дословно",
+  "encoding": "сигнала в слепке нет — Encoding не извлёк",
+  "noise": "шум / ретрай-дубликат"
+};
+
+/** Ключ реплики — пара (session, id): LME-сессии нумеруют реплики каждая с единицы. */
+const isLme = (s) => (s || "").startsWith("lme-");
+const jKey = (session, id) => `${session || ""}|${id}`;
+const msgBy = (session, id) => state.day.find(m => m.session === session && m.id === id);
+const sel = () => state.selected == null ? null : msgBy(state.selected.session, state.selected.id);
+const pointAt = (msg) => state.points.find(p => p.sourceMessageId === msg.id && p.sourceSession === msg.session);
+const wcheckAt = (pointId) => state.wcheck.find(w => w.pointId === pointId);
+const oracleAt = (pointId) => state.oracles.find(o => o.pointId === pointId);
+/** Решённость пары и победитель выводим из pass-флагов плеч (E4), поле solved/winner — опционально. */
+const solvedOf = (o) => !!o && (o.a?.pass) !== (o.b?.pass);
+const winnerOf = (o) => o.a?.pass ? "a" : "b";
+const spo = (f) => `${f.subject || ""} · ${f.predicate || ""} · ${f.object || ""}`;
+const pickText = (a) => a.answer || a.text || a.content || "";
+
+function latestJournal() {
+  const m = new Map();
+  for (const j of state.journal) m.set(jKey(j.session, j.candidateId), j);
+  return m;
 }
 
 async function parseJsonl(resp) {
@@ -180,97 +321,567 @@ async function parseJsonl(resp) {
              .filter(Boolean);
 }
 
+async function loadAll() {
+  const [day, points, snapshots, journal, wcheck, prod, answers, oracles] = await Promise.all([
+    fetch("/api/day").then(parseJsonl), fetch("/api/points").then(parseJsonl),
+    fetch("/api/snapshots").then(r => r.json()), fetch("/api/journal").then(parseJsonl),
+    fetch("/api/wcheck").then(parseJsonl), fetch("/api/prod-facts").then(r => r.json()),
+    fetch("/api/answers").then(r => r.json()), fetch("/api/oracles").then(parseJsonl)
+  ]);
+  state.day = day; state.points = points; state.snapshots = snapshots;
+  state.journal = journal; state.wcheck = wcheck;
+  state.prodFacts = Array.isArray(prod) ? prod : (prod.facts || []);
+  state.prodError = Array.isArray(prod) ? "" : (prod.error || "");
+  state.prodIrrelevant = !Array.isArray(prod) && !!prod.lme;
+  state.answers = answers || {};
+  state.oracles = oracles;
+  if (state.selected != null && !sel()) state.selected = null;
+  renderStats(); renderLeft(); renderBottom();
+  if (state.selected != null) selectMsg(state.selected.session, state.selected.id);
+  else { $("workbench").style.display = "none"; $("noSelection").style.display = "block"; }
+}
+
 function renderStats() {
   const l1 = state.points.filter(p => p.level === "L1").length;
   const c = state.points.filter(p => p.level === "C").length;
-  const taken = state.journal.filter(j => j.verdict === "taken").length;
-  const rejected = state.journal.filter(j => j.verdict === "rejected").length;
+  const latest = latestJournal();
+  const taken = [...latest.values()].filter(j => j.verdict === "taken").length;
+  const rejected = [...latest.values()].filter(j => j.verdict === "rejected").length;
   const constr = (taken + rejected) ? Math.round(100 * taken / (taken + rejected)) : "—";
+  let ab = "";
+  if (state.oracles.length) {
+    const s = state.oracles.filter(solvedOf);
+    const a = s.filter(o => winnerOf(o) === "a").length;
+    ab = ` · A/B: побед A <b>${a}</b> / B <b>${s.length - a}</b> · решённых ${s.length}/${state.oracles.length}`;
+  }
   $("stats").innerHTML =
-    `точек: <b>${l1} L1</b> + <b>${c} C</b> · просмотрено: <b>${taken + rejected}</b> · конструируемость: <b>${constr}%</b>`;
-  const seen = new Set(state.journal.map(j => j.candidateId));
-  const unreviewed = state.day.length - seen.size;
-  $("dayInfo").textContent = state.day.length ? `· ${state.day.length} реплик · не просмотрено: ${unreviewed}` : "· пусто";
+    `точек: <b>${l1} L1</b> + <b>${c} C</b> · просмотрено: <b>${taken + rejected}</b>` +
+    ` · конструируемость: <b>${constr}%</b> · отсеяно: <b>${rejected}</b>${ab}`;
 }
 
-function pointAt(msg) {
-  return state.points.find(p => p.sourceMessageId === msg.id && p.sourceSession === msg.session);
+/* ── режимы левой панели ── */
+
+function setMode(mode) {
+  state.listMode = mode;
+  $("tabPoints").classList.toggle("active", mode === "points");
+  $("tabLog").classList.toggle("active", mode === "log");
+  $("leftTitle").innerHTML = mode === "points"
+    ? "Точки и кандидаты"
+    : `Реплики среза <span class="hint" id="dayInfo"></span>`;
+  $("descWrap").style.display = mode === "log" ? "" : "none";
+  renderLeft();
 }
 
+function renderLeft() {
+  if (state.listMode === "points") renderPointList(); else renderMessages();
+}
+
+/** Список точек (положительные досье) и отсеянных кандидатов (отрицательные досье). */
+function renderPointList() {
+  const latest = latestJournal();
+  const hasPoint = new Set(state.points.map(p => jKey(p.sourceSession, p.sourceMessageId)));
+  const points = state.points.slice().sort((a, b) => a.sourceMessageId - b.sourceMessageId);
+  const rejected = [...latest.entries()]
+    .filter(([key, j]) => j.verdict === "rejected" && !hasPoint.has(key))
+    .map(([key, j]) => ({ session: j.session, id: j.candidateId }))
+    .sort((a, b) => a.id - b.id);
+
+  const pointItem = (p) => {
+    const j = latest.get(jKey(p.sourceSession, p.sourceMessageId));
+    const cut = j && j.verdict === "rejected";
+    const rep = wcheckAt(p.id);
+    const o = oracleAt(p.id);
+    const wc = !rep ? `<span class="st dim">W —</span>`
+      : rep.status === "insufficient-grid" ? `<span class="st warn">W ~</span>`
+      : rep.covered ? `<span class="st ok">W ✔</span>` : `<span class="st err">W ✘</span>`;
+    const abc = !o ? "" : solvedOf(o)
+      ? (winnerOf(o) === "a" ? `<span class="st ok">A✔B✘</span>` : `<span class="st err">A✘B✔</span>`)
+      : `<span class="st dim">A=B</span>`;
+    const leak = o && o.leak ? `<span class="st err">leak</span>` : "";
+    const title = cut ? "точка отсеяна журналом — убрать из points jsonl руками"
+      : `${p.id}: ${p.pattern || p.trigger}`;
+    const active = state.selected && state.selected.session === p.sourceSession
+      && state.selected.id === p.sourceMessageId;
+    return `<div class="pl-item${active ? " active" : ""}"
+      onclick="selectMsg('${esc(p.sourceSession)}', ${p.sourceMessageId})" title="${esc(title)}">
+      <div class="pl-line"><span class="mark ${cut ? "err" : "ok"}">${cut ? "✘" : "✔"}</span>
+        <span class="lvl ${p.level}">${esc(p.level)}</span> <b>${esc(p.id)}</b>
+        <span class="hint">M#${p.sourceMessageId}</span> ${wc}${abc}${leak}</div>
+      <div class="pl-sub">${esc(p.pattern || p.trigger || "")}</div></div>`;
+  };
+
+  const rejItem = (r) => {
+    const j = latest.get(jKey(r.session, r.id));
+    const m = msgBy(r.session, r.id) || state.day.find(x => x.id === r.id);
+    const active = m && state.selected && state.selected.id === r.id
+      && state.selected.session === m.session;
+    return `<div class="pl-item${active ? " active" : ""}"
+      ${m ? `onclick="selectMsg('${esc(m.session)}', ${r.id})"` : ""} title="${esc(m ? (REJECT_NOTES[j.reason] || "") : "реплики нет в срезе")}">
+      <div class="pl-line"><span class="mark err">✘</span> <b>#${r.id}</b>
+        ${r.session ? `<span class="hint">${esc(r.session)}</span>` : ""}
+        <span class="st err">${esc(j.reason || "")}</span></div>
+      <div class="pl-sub">${esc(REJECT_NOTES[j.reason] || "")}</div></div>`;
+  };
+
+  const group = (title, body) =>
+    `<div class="pl-group">${title}</div>${body || `<div class="hint" style="padding:4px 12px">пусто</div>`}`;
+  $("leftList").innerHTML =
+    group("L1 — W-точки · инъекция должна помочь", points.filter(p => p.level === "L1").map(pointItem).join("")) +
+    group("C — контроль утечки · память должна молчать", points.filter(p => p.level === "C").map(pointItem).join("")) +
+    group("Отсеянные кандидаты · отрицательные досье", rejected.map(rejItem).join(""));
+}
+
+/** Режим разметки: реплики среза, выбор кандидата M. Сессий больше одной (LME-микромиры или
+ *  смешанный датасет) — группы по сессиям; одна live-сессия — группы по датам, как раньше. */
 function renderMessages() {
-  const seenVerdicts = new Map(state.journal.map(j => [j.candidateId, j]));
+  const seenVerdicts = latestJournal();
+  const inDb = new Set(state.prodFacts.flatMap(f => f.evidence || []));
+  let list = state.day;
+  const bySession = new Set(list.map(m => m.session)).size > 1;
+  if ($("descOrder").checked) list = list.slice().reverse();
+  const header = (text, count) =>
+    `<div class="day-header">${esc(text)} · ${count} реплик</div>`;
   let html = "";
-  let lastDay = null;
-  for (const m of state.day) {
-    const day = (m.time || "").slice(0, 10);
-    if (day && day !== lastDay) {
-      const dayCount = state.day.filter(x => (x.time || "").slice(0, 10) === day).length;
-      html += `<div class="day-header">${esc(day)} · ${dayCount} реплик</div>`;
-      lastDay = day;
+  let lastGroup = Symbol("init");
+  for (const m of list) {
+    const group = bySession ? m.session
+      : ((m.time || "").slice(0, 10) || lastGroup);
+    if (group !== lastGroup) {
+      const cnt = bySession
+        ? state.day.filter(x => x.session === group).length
+        : state.day.filter(x => (x.time || "").slice(0, 10) === group).length;
+      html += header(group, cnt);
+      lastGroup = group;
     }
     const p = pointAt(m);
-    const v = seenVerdicts.get(m.id);
+    const v = seenVerdicts.get(jKey(m.session, m.id));
     const marks = [
-      p ? `<span class="badge marked">${p.level} ${esc(p.id)}</span>` : "",
-      v ? `<span class="badge marked">${v.verdict === "taken" ? "✔" : "✘ " + esc(v.reason || "")}</span>` : ""
+      p ? `<span class="badge marked">${esc(p.level)} ${esc(p.id)}</span>` : "",
+      v ? `<span class="badge marked">${v.verdict === "taken" ? "✔" : "✘ " + esc(v.reason || "")}</span>` : "",
+      !isLme(m.session) && inDb.has(m.id) ? `<span class="badge db">база</span>` : ""
     ].join(" ");
-    html += `<div class="msg ${state.selected?.id === m.id ? "selected" : ""}" onclick="select(${m.id})">
+    const isSel = state.selected && state.selected.id === m.id && state.selected.session === m.session;
+    html += `<div class="msg ${isSel ? "selected" : ""}" id="msg-${esc(m.session)}-${m.id}"
+      onclick="selectMsg('${esc(m.session)}', ${m.id})">
       <div class="meta"><span>#${m.id}</span><span class="badge ${m.peer}">${esc(m.peer)}</span>
         <span>${esc((m.time || "").slice(11, 19))}</span><span>${m.tokens ?? ""}t</span>${marks}</div>
       <div class="content">${esc(m.content)}</div></div>`;
   }
-  $("messages").innerHTML = html || `<div class="empty">candidates.jsonl пуст — прогони:<br>run -Pargs='candidates &lt;session&gt;'</div>`;
+  $("leftList").innerHTML = html ||
+    `<div class="empty">день пуст — LME-лог строится из LongMemEval-файла по точкам датасета,<br>
+     live-день: run -Pargs='candidates &lt;session&gt;'</div>`;
+  const info = $("dayInfo");
+  if (info) {
+    const seen = new Set(state.journal.map(j => jKey(j.session, j.candidateId)));
+    const seenHere = state.day.filter(m => seen.has(jKey(m.session, m.id))).length;
+    info.textContent = state.day.length
+      ? `· ${state.day.length} реплик · не просмотрено: ${state.day.length - seenHere}` : "· пусто";
+  }
 }
 
-function select(id) {
-  const msg = state.day.find(m => m.id === id);
+/* ── выбор и досье ── */
+
+function selectMsg(session, id) {
+  const msg = msgBy(session, id);
   if (!msg) return;
-  state.selected = msg;
+  state.selected = { session, id };
+  const p = pointAt(msg);
+  $("dosTitle").innerHTML = p ? `Досье: ${esc(p.level)}-${esc(p.id)}` : `Кандидат: M #${id}`;
   $("noSelection").style.display = "none";
   $("workbench").style.display = "block";
-  renderMessages();
-  renderContext();
-  const p = pointAt(msg);
   if (p) {
     $("f-id").value = p.id; $("f-level").value = p.level; $("f-trigger").value = p.trigger;
+    $("f-pattern").value = p.pattern || "";
     $("f-truth").value = p.truth; $("f-must").value = (p.must || []).join(", ");
     $("f-mustNot").value = (p.mustNot || []).join(", "); $("f-coverage").value = p.coverage || "";
     $("saveBtn").style.display = "none";
     $("saveHint").textContent = "точка существует — правки руками в jsonl, потом ⟳";
   } else {
     $("f-id").value = `L1-${msg.id}`; $("f-level").value = "L1"; $("f-trigger").value = msg.content;
-    $("f-truth").value = ""; $("f-must").value = ""; $("f-mustNot").value = ""; $("f-coverage").value = "";
+    $("f-pattern").value = ""; $("f-truth").value = ""; $("f-must").value = "";
+    $("f-mustNot").value = ""; $("f-coverage").value = "";
     $("saveBtn").style.display = "";
     $("saveHint").textContent = "";
   }
-  renderSnapshot();
+  renderLeft();
+  renderHead(msg, p);
+  renderTimeline(msg);
+  renderWhy(msg, p);
+  renderCoverage(p, msg);
+  renderTruth(p);
+  renderAB(p);
+  fillSnapshot(p);
+  renderProdFacts();
+  const el = document.querySelector("#leftList .selected, #leftList .pl-item.active");
+  if (el) el.scrollIntoView({ block: "nearest" });
 }
 
-function renderContext() {
-  const m = state.selected;
-  const n = Math.max(1, parseInt($("windowN").value) || 5);
-  const idx = state.day.findIndex(x => x.id === m.id);
-  const windowMsgs = state.day.slice(Math.max(0, idx - n), idx);
-  const future = state.day.slice(idx + 1, idx + 6);
-  const row = (msg, cls) =>
-    `<div class="row ${cls}"><div class="who">#${msg.id} · ${esc(msg.peer)}</div>${esc(msg.content)}</div>`;
-  $("context").innerHTML =
-    windowMsgs.map(x => row(x, "window")).join("") +
-    `<div class="row trigger"><div class="who">#${m.id} · T · триггер</div>${esc(m.content)}</div>` +
-    (future.length ? `<div class="row future"><div class="who">будущее (истина отсюда)</div></div>` +
-      future.map(x => row(x, "future")).join("")
-      : `<div class="row"><div class="who">будущего нет — конец лога</div></div>`);
+/** Прыжок к реплике-evidence: сперва в сессии досье, затем глобально (кросс-датасетные id). */
+function jumpTo(session, id) {
+  const m = msgBy(session, id) || state.day.find(x => x.id === id);
+  if (!m) return;
+  if (state.listMode !== "log") setMode("log");
+  selectMsg(m.session, m.id);
+  const el = $("msg-" + esc(m.session) + "-" + m.id);
+  if (el) { el.classList.remove("ping"); void el.offsetWidth; el.classList.add("ping"); }
 }
+
+function renderHead(m, p) {
+  const j = latestJournal().get(jKey(m.session, m.id));
+  const o = p && oracleAt(p.id);
+  const badges = [
+    p ? `<span class="lvl ${p.level}">${esc(p.level)}</span> <b>${esc(p.id)}</b>` : `<b>кандидат #${m.id}</b>`,
+    `<span class="hint">M #${m.id} · ${esc((m.time || "").slice(0, 16).replace("T", " "))}</span>`,
+    j ? (j.verdict === "taken"
+        ? `<span class="badge pass">✔ взят</span>`
+        : `<span class="badge fail">✘ ${esc(j.reason || "отсев")}</span>`)
+      : `<span class="badge dim2">не размечен</span>`,
+    o && o.leak ? `<span class="badge fail">C-leak · veto</span>` : "",
+    o && solvedOf(o) ? `<span class="badge ${winnerOf(o) === "a" ? "pass" : "fail"}">A/B: победа ${winnerOf(o) === "a" ? "A" : "B"}</span>`
+      : o ? `<span class="badge dim2">A/B: ничья</span>` : ""
+  ].filter(Boolean).join(" ");
+  $("dosHead").innerHTML = `<div class="card"><div class="card-head">${badges}</div>
+    ${p && p.pattern ? `<div>${esc(p.pattern)}</div>` : ""}</div>`;
+}
+
+/* ── таймлайн ── */
+
+/** Зоны контекста для M: префикс до W0, окно (W0,M), будущее. Общее для таймлайна, базы и coverage. */
+function zones(m) {
+  const n = Math.max(1, parseInt($("windowN").value) || 5);
+  const sess = state.day.filter(x => x.session === m.session);
+  const idx = Math.max(0, sess.findIndex(x => x.id === m.id));
+  const windowMsgs = sess.slice(Math.max(0, idx - n), idx);
+  const prefix = sess.slice(Math.max(0, idx - n - PREFIX_LEN), Math.max(0, idx - n));
+  const future = sess.slice(idx + 1, idx + 6);
+  return { prefix, windowMsgs, future, w0: prefix.length ? prefix[prefix.length - 1].id : null };
+}
+
+function zoneOfId(id, m, z) {
+  if (id === m.id) return "m";
+  if (z.future.some(x => x.id === id)) return "f";
+  if (z.windowMsgs.some(x => x.id === id)) return "w";
+  if (z.prefix.some(x => x.id === id)) return "p";
+  return "o";
+}
+
+function renderTimeline(m) {
+  const { prefix, windowMsgs, future } = zones(m);
+  const p = pointAt(m);
+  const rep = p && wcheckAt(p.id);
+  const evTitle = new Map();
+  if (rep) for (const f of (rep.valid || [])) for (const id of (f.evidence || []))
+    evTitle.set(id, (evTitle.get(id) || []).concat(f.statement || spo(f)));
+  const evBadge = (id) => evTitle.has(id)
+    ? ` <span class="badge ev" title="evidence валидного факта-покрытия: ${esc(evTitle.get(id).join(" | "))}">ev</span>` : "";
+  const row = (msg, cls, whoExtra = "") =>
+    `<div class="tl-row ${cls}" onclick="this.classList.toggle('open')" title="клик — развернуть/свернуть">
+      <div class="who">#${msg.id} · ${esc(msg.peer)} · ${esc((msg.time || "").slice(11, 16))}${evBadge(msg.id)}${whoExtra}</div>
+      <div class="txt">${esc(msg.content)}</div></div>`;
+  const zone = (label, cls = "") => `<div class="tl-zone ${cls}">${label}</div>`;
+  let html = prefix.length
+    ? zone(`префикс · ${prefix.length} реплик — знание вне окна: память могла усвоить, плечи не видят`)
+      + prefix.map((x, i) => row(x, "prefix" + (i === prefix.length - 1 ? " w0" : ""),
+          i === prefix.length - 1 ? ` · <b>W0 — граница окна</b>` : "")).join("")
+    : zone("префикса нет — окно упирается в начало среза");
+  html += zone(`окно (W0, M) · ${windowMsgs.length} реплик — видят оба плеча`, "win")
+    + windowMsgs.map(x => row(x, "window")).join("");
+  html += `<div class="tl-row trigger" onclick="this.classList.toggle('open')">
+    <div class="who">#${m.id} · <b>M — ${p ? "РАЗВИЛКА · триггер плеч" : "кандидат · потенциальная развилка"}</b>${evBadge(m.id)}</div>
+    <div class="txt">${esc(m.content)}</div></div>`;
+  html += zone(isLme(m.session)
+      ? "будущее — LME-микромир заканчивается вопросом M · истина = gt-ответ бенчмарка"
+      : "будущее — источник истины · системе недоступно", "fut")
+    + (future.length ? future.map(x => row(x, "future")).join("")
+      : `<div class="tl-row"><div class="who">${isLme(m.session)
+        ? "M — последняя реплика микромира: система отвечает на вопрос, истина — gt-ответ LongMemEval"
+        : "будущего нет — конец лога"}</div></div>`);
+  $("context").innerHTML = html;
+  $("origin").innerHTML = originSummary(m, prefix, windowMsgs, future);
+}
+
+/** Эвристика выводимости (§2.9 шаг 2): в каких зонах встречаются must-маркеры. Подстрока ≠ знание — только подсказка. */
+function originSummary(m, prefix, windowMsgs, future) {
+  const p = pointAt(m);
+  let terms = p
+    ? (p.must || []).map(t => norm(t).trim()).filter(Boolean)
+    : [...new Set(norm($("f-truth").value).split(/[^a-zа-я0-9_.-]+/).filter(w => w.length >= 3))];
+  terms = [...new Set(terms)];
+  if (!terms.length) return "";
+  const hit = (msgs) => {
+    const hay = norm(msgs.map(x => x.content).join(" \n "));
+    return terms.filter(t => hay.includes(t));
+  };
+  const inPrefix = hit(prefix), inWindow = hit(windowMsgs), inFuture = hit(future);
+  let verdict, color;
+  if (inPrefix.length) {
+    verdict = "✓ маркеры есть вне окна — знание старое, память могла усвоить: честная развилка";
+    color = "var(--ok)";
+  } else if (inWindow.length) {
+    verdict = "⚠ маркеры до M встречаются только в окне — плечи выведут и без памяти (риск in-window)";
+    color = "var(--warn)";
+  } else {
+    verdict = "✗ маркеров до M нет — знание рождается в будущем: память не могла усвоить (encoding-кандидат)";
+    color = "var(--err)";
+  }
+  return `<div class="origin"><b style="color:${color}">${verdict}</b><br>
+    <span class="hint">эвристика по must-маркерам · вне окна: ${inPrefix.length} · в окне: ${inWindow.length} · в будущем: ${inFuture.length}</span></div>`;
+}
+
+/* ── почему выбрана / отсеяна ── */
+
+function renderWhy(m, p, jArg) {
+  const j = jArg || latestJournal().get(jKey(m.session, m.id));
+  let html = "";
+  if (p) {
+    if (p.pattern) html += `<div class="kv"><span>паттерн</span><div>${esc(p.pattern)}</div></div>`;
+    const rep = wcheckAt(p.id);
+    const counts = rep ? [
+      (rep.inWindow || []).length ? `in-window: ${rep.inWindow.length}` : null,
+      (rep.lag || []).length ? `lag: ${rep.lag.length}` : null,
+      (rep.unknown || []).length ? `unknown: ${rep.unknown.length}` : null
+    ].filter(Boolean).join(" · ") : "";
+    if (!rep) html += hint(`W-отчёта нет — прогони <code>run -Pargs=wcheck</code>, потом ⟳.`);
+    else if (rep.status === "insufficient-grid")
+      html += `<p style="color:var(--warn)">insufficient grid — слепков W0/M нет или M в начале среза: точка отложена, не reject.</p>`;
+    else html += rep.covered
+      ? `<p style="color:var(--ok)">W ✔ covered — валидных фактов-покрытий: ${(rep.valid || []).length}${counts ? " · " + counts : ""} (см. «Какой контекст помогает»)</p>`
+      : `<p style="color:var(--err)">W ✘ not-covered — валидного покрытия нет${counts ? " · " + counts : ""}: кандидат на in-window reject или добор сетки.</p>`;
+  } else {
+    html += hint(`точки на #${m.id} нет — кандидат. Порядок разметки (§2.9): паттерн → выводимость из префикса
+      (эвристика под таймлайном) → развилка M → форма → сохранить → replay → wcheck.`);
+  }
+  if (j) html += j.verdict === "taken"
+    ? `<div class="kv"><span>журнал</span><div><span class="badge pass">✔ взят в датасет</span>
+       <span class="hint">${esc((j.at || "").slice(5, 16).replace("T", " "))}</span></div></div>`
+    : `<div class="kv"><span>журнал</span><div><span class="badge fail">✘ отсев: ${esc(j.reason || "")}</span>
+       — ${esc(REJECT_NOTES[j.reason] || "")}</div></div>`;
+  else if (p) html += `<div class="kv"><span>журнал</span><div><span class="badge dim2">вердикта нет</span></div></div>`;
+  $("why").innerHTML = html;
+}
+
+/* ── какой контекст помогает ── */
+
+let wcheckValid = [];
+function renderCoverage(p, m) {
+  wcheckValid = [];
+  const cov = $("coverage"), facts = $("validFacts");
+  if (!p) {
+    cov.innerHTML = hint("coverage — поле точки: факт слепка, покрывающий истину. Появится после wcheck.");
+    facts.innerHTML = "";
+    return;
+  }
+  const rep = wcheckAt(p.id);
+  cov.innerHTML = p.coverage
+    ? `<div class="card"><div class="kv"><span>coverage</span><div>${esc(p.coverage)}</div></div></div>`
+    : hint(`coverage не назначен${rep && rep.covered ? " — кликни валидный факт ниже: строка скопируется для jsonl" : "."}`);
+  if (!rep || rep.status === "insufficient-grid") { facts.innerHTML = ""; return; }
+  const z = zones(m);
+  const w0 = rep.w0MessageId ?? z.w0;
+  const valid = rep.valid || [];
+  wcheckValid = valid;
+  const factRow = (f, i) => `
+    <div class="fact pick" onclick="copyCoverage(${i})" title="клик — скопировать coverage-строку">
+      <div class="spo">${esc(spo(f))}</div>
+      ${f.statement ? `<div>${esc(f.statement)}</div>` : ""}
+      <div class="meta">valid · ${esc(f.section)} · born #${f.born} ≤ W0 #${w0} · last #${f.last} · evidence:
+        ${(f.evidence || []).map(id => `<button class="ev zone-${zoneOfId(id, m, z)}"
+          onclick="event.stopPropagation();jumpTo('${esc(p.sourceSession)}', ${id})">#${id}</button>`).join(" ")}</div>
+    </div>`;
+  facts.innerHTML = valid.length
+    ? hint("валидные факты-покрытия — рождение ≤ W0, плечи blind к происхождению:") + valid.map(factRow).join("")
+    : "";
+}
+
+function copyCoverage(i) {
+  const f = wcheckValid[i];
+  if (!f) return;
+  const s = `${f.section}: ${f.subject || ""} · ${f.predicate || ""} · ${f.object || ""} (evidence ${f.born}..${f.last})`;
+  $("f-coverage").value = s;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(s)
+      .then(() => flash("coverage скопирован — вставь в points jsonl"))
+      .catch(() => flash("coverage в поле формы — скопируй вручную"));
+  } else flash("coverage в поле формы — скопируй вручную");
+}
+
+/* ── правильный ответ ── */
+
+function renderTruth(p) {
+  if (!p) {
+    const lme = state.selected && isLme(state.selected.session);
+    $("truth").innerHTML = hint(lme
+      ? `истина — gt-ответ LongMemEval на вопрос M: у LME-микромира нет будущего лога
+        (M — последняя реплика), истина приходит из бенчмарка.`
+      : `истина — реальное продолжение лога после M (зона «будущее» в таймлайне) —
+        заполняется в форме разметки и не меняется: объективность оракулов.`);
+    return;
+  }
+  const chip = (t, bad) => `<span class="chip-term ${bad ? "bad" : ""}">${esc(t)}</span>`;
+  $("truth").innerHTML = `<div class="card">
+    <div class="truth-txt">${esc(p.truth)}</div>
+    <div style="margin-top:6px">${(p.must || []).map(t => chip(t)).join(" ")}
+      ${(p.mustNot || []).map(t => chip(t, true)).join(" ")}</div>
+    <p class="hint">must — обязаны присутствовать в ответе плеча · mustNot — маркеры ошибки
+      (C: появление в ответе A = leak, veto прогона)</p></div>`;
+}
+
+/* ── A/B — вклад портрета (стадии E3/E4) ── */
+
+function renderAB(p) {
+  const box = $("ab");
+  if (!p) { box.innerHTML = hint("A/B — после сохранения точки (плечи E3, оракулы E4)."); return; }
+  const o = oracleAt(p.id);
+  const arms = state.answers[p.id] || {};
+  if (!o && !arms.a && !arms.b) {
+    box.innerHTML = hint(`плечи не прогонялись: <code>./gradlew -p eval run -Pargs=arms</code> →
+      <code>…=oracles</code> → ⟳.<br>контракт: <code>out/answers/${esc(p.id)}.{a,b}.json</code>
+      · <code>out/oracles.jsonl</code>`);
+    return;
+  }
+  const terms = [...(p.must || []), ...(p.mustNot || [])].map(t => norm(t).trim()).filter(Boolean);
+  const armCard = (arm, label, note) => {
+    const a = arms[arm];
+    const v = o ? o[arm] : null;
+    const badge = v
+      ? (v.pass ? `<span class="badge pass">✔ pass</span>` : `<span class="badge fail">✘ fail</span>`)
+      : `<span class="badge dim2">нет вердикта</span>`;
+    const text = a ? highlightTerms(pickText(a), terms) : `<span class="hint">ответа нет</span>`;
+    const meta = a ? [a.model, a.tokens != null ? a.tokens + "t" : null,
+        a.latencyMs != null ? a.latencyMs + "ms" : null, a.cached ? "кэш" : null,
+        (a.at || "").slice(0, 16).replace("T", " ") || null].filter(Boolean).map(esc).join(" · ") : "";
+    const missed = v && (v.missedMust || []).length
+      ? `<div class="ab-miss">must не найдены: ${(v.missedMust || []).map(esc).join(", ")}</div>` : "";
+    const leakHit = arm === "a" && v && (v.matchedMustNot || []).length
+      ? `<div class="ab-miss" style="color:var(--err)">mustNot в ответе (leak): ${(v.matchedMustNot || []).map(esc).join(", ")}</div>` : "";
+    return `<div class="arm"><div class="card-head"><b>${label}</b> ${badge} <span class="hint">${note}</span></div>
+      <div class="arm-text">${text}</div>${missed}${leakHit}${meta ? `<div class="meta">${meta}</div>` : ""}</div>`;
+  };
+  const cLeak = p.level === "C" && o && o.leak
+    ? `<p style="color:var(--err)"><b>C-leak:</b> маркеры утекли в ответ плеча A${(o.leakMarkers || []).length
+        ? ": " + o.leakMarkers.map(esc).join(", ") : ""} — veto прогона (Р36), в lift не входит.</p>` : "";
+  const pair = o
+    ? (solvedOf(o)
+        ? `<p>решённая пара: <b style="color:${winnerOf(o) === "a" ? "var(--ok)" : "var(--err)"}">победа ${winnerOf(o) === "a" ? "A" : "B"}</b> — идёт в lift</p>`
+        : hint(`пара не решена (${o.a?.pass ? "обе прошли" : "обе упали"}) — вне выборки lift`))
+    : hint("оракулы не прогнаны — вердикты плеч неизвестны.");
+  box.innerHTML = `<div class="arms">
+      ${armCard("a", "Плечо A", "инъекция слепка на M")}
+      ${armCard("b", "Плечо B", "контроль — тот же контекст, без портрета")}
+    </div>${cLeak}${pair}`;
+}
+
+/* ── слепок на M (инъекция плеча A) ── */
+
+async function fillSnapshot(p) {
+  const box = $("snapshot");
+  if (!p) { $("snapshotHint").textContent = ""; box.innerHTML = hint("точки нет — слепка нет."); return; }
+  if (!state.snapshots.includes(p.id)) {
+    $("snapshotHint").textContent = "";
+    box.innerHTML = hint(`слепка ${esc(p.id)} нет — прогони replay, потом ⟳.`);
+    return;
+  }
+  const snap = await fetch(`/api/snapshot/${encodeURIComponent(p.id)}`).then(r => r.json());
+  $("snapshotHint").textContent = `(${esc(p.id)} · подсветка = слова truth)`;
+  const section = (title, facts) => !facts?.length ? "" :
+    `<div class="sec-title">${title}</div>` + facts.map(f => `
+      <div class="fact">
+        <div class="spo">${highlightTruth(f.subject || "")} · ${highlightTruth(f.predicate || "")} · ${highlightTruth(f.object || "")}</div>
+        ${f.statement ? `<div>${highlightTruth(f.statement)}</div>` : ""}
+        <div class="meta">подкрепления: ${f.reinforcement_count ?? "?"}</div>
+      </div>`).join("");
+  box.innerHTML =
+    section("critical", snap.critical) + section("constructs", snap.constructs) + section("preferences", snap.preferences) ||
+    hint("слепок пуст");
+}
+
+/* ── production-факты ── */
+
+/**
+ * Выводы, уже лежащие в production-базе (gestalt_spike), с evidence — из каких реплик выведен факт.
+ * Отбор: must-маркеры точки (для C — и mustNot: реальна ли утечка) в тексте факта, либо evidence
+ * в префиксе/окне/M. Классификация по W0 — та же семантика, что W-проверка (§2.9).
+ */
+function renderProdFacts() {
+  const box = $("prodFacts"), hintEl = $("prodHint");
+  const section = $("prodSection");
+  const m = sel();
+  if (!m) { box.innerHTML = ""; hintEl.textContent = ""; return; }
+  if (state.prodIrrelevant) {
+    // чистый LME-датасет: микромиры в production не инжестятся — секция не релевантна
+    if (section) section.style.display = "none";
+    box.innerHTML = ""; hintEl.textContent = "";
+    return;
+  }
+  if (section) section.style.display = "";
+  if (state.prodError) {
+    hintEl.textContent = "";
+    box.innerHTML = `<p class="hint" style="color:var(--warn)">production-база недоступна: ${esc(state.prodError)}</p>`;
+    return;
+  }
+  const p = pointAt(m);
+  const z = zones(m);
+  let terms = p
+    ? [...(p.must || []), ...(p.level === "C" ? (p.mustNot || []) : [])]
+    : truthTerms();
+  terms = [...new Set(terms.map(t => norm(t).trim()).filter(Boolean))];
+  const w0 = z.w0 ?? -Infinity;
+  const rows = [];
+  for (const f of state.prodFacts) {
+    const text = norm([f.subject, f.predicate, f.object, f.statement].join(" \n "));
+    const hitTerms = terms.filter(t => text.includes(t));
+    const evZones = (f.evidence || []).map(id => zoneOfId(id, m, z));
+    const nearM = evZones.includes("m") || evZones.includes("w") || evZones.includes("p");
+    if (!hitTerms.length && !nearM) continue;
+    const ev = (f.evidence || []).slice().sort((a, b) => a - b);
+    let cls, label;
+    if (!ev.length) { cls = "lag"; label = "evidence пуст — происхождение неизвестно"; }
+    else if (ev[ev.length - 1] <= w0) { cls = "valid"; label = "valid — усвоен до W0, плечи blind"; }
+    else if (ev[0] > w0) { cls = "inwin"; label = "рождён после W0 (окно/будущее) — плечи тоже знают"; }
+    else { cls = "lag"; label = "lag — до W0, но reinforcement позже W0"; }
+    const color = cls === "valid" ? "var(--ok)" : cls === "inwin" ? "var(--warn)" : "var(--err)";
+    const why = [
+      hitTerms.length ? `маркеры: ${hitTerms.map(esc).join(", ")}` : "",
+      nearM ? "evidence у M" : ""
+    ].filter(Boolean).join(" · ");
+    rows.push({ cls, maxEv: ev.length ? ev[ev.length - 1] : -1, html: `
+      <div class="fact">
+        <div class="spo">${esc(f.subject || "")} · ${esc(f.predicate || "")} · ${esc(f.object || "")}</div>
+        ${f.statement ? `<div>${esc(f.statement)}</div>` : ""}
+        <div class="meta"><b style="color:${color}">${label}</b> · из реплик:
+          ${ev.map(id => `<button class="ev zone-${zoneOfId(id, m, z)}" onclick="jumpTo('${esc(m.session)}', ${id})">#${id}</button>`).join(" ")}
+          ${f.reinforcement > 1 ? ` · подкреплений: ${f.reinforcement}` : ""}${why ? ` · ${why}` : ""}</div>
+      </div>` });
+  }
+  const order = { valid: 0, inwin: 1, lag: 2 };
+  rows.sort((a, b) => order[a.cls] - order[b.cls] || b.maxEv - a.maxEv);
+  const evAll = state.prodFacts.flatMap(f => f.evidence || []);
+  const ingestTo = evAll.length ? Math.max(...evAll) : null;
+  hintEl.textContent = `инжест дошёл до #${ingestTo ?? "—"} · фактов: ${state.prodFacts.length} · по точке: ${rows.length}`;
+  const staleIngest = ingestTo !== null && z.w0 !== null && z.w0 > ingestTo;
+  box.innerHTML = rows.length
+    ? rows.map(r => r.html).join("")
+    : staleIngest
+      ? hint(`в базе выводов нет: production-инжест дошёл только до #${ingestTo}, а реплики
+         #${ingestTo + 1}..W0 #${z.w0} не инжестированы. Выводимость покажет replay (W-проверка) —
+         он извлечёт факты из всего среза до M.`)
+      : hint(`по репликам вокруг M#${m.id} и маркерам точки выводов в базе нет —
+         для L1 это значит: знание усваивается только из будущего (рискует стать encoding).`);
+}
+
+/* ── подсветка ── */
 
 function truthTerms() {
   return norm($("f-truth").value).split(/[^a-zа-я0-9_.-]+/)
     .filter(w => w.length >= 3 && !["при", "для", "это", "как", "что", "the", "and"].includes(w));
 }
 
-function highlight(text) {
-  const terms = [...new Set(truthTerms())];
+const highlightTruth = (text) => highlightTerms(text, truthTerms());
+
+/** Подсветка вхождений нормализованных термов: текст и термы обрабатываются одинаково (esc + lowercase + ё→е). */
+function highlightTerms(text, terms) {
+  terms = [...new Set(terms.filter(Boolean))];
   if (!terms.length) return esc(text);
-  // разметка вхождений по нормализованной копии: текст и термы уже экранированы/нормализованы одинаково
   const lowered = norm(text);
   const marks = new Array(text.length).fill(false);
   for (const term of terms) {
@@ -292,43 +903,17 @@ function highlight(text) {
   return out;
 }
 
-async function renderSnapshot() {
-  const m = state.selected;
-  if (!m) return;
-  const p = pointAt(m);
-  const box = $("snapshot");
-  if (!p) {
-    $("snapshotHint").textContent = "";
-    box.innerHTML = `<p class="hint">Точки на T=${m.id} нет — сохрани черновик, прогони replay, потом ⟳.</p>`;
-    return;
-  }
-  if (!state.snapshots.includes(p.id)) {
-    $("snapshotHint").textContent = "";
-    box.innerHTML = `<p class="hint">Слепка ${esc(p.id)} нет — прогони replay, потом ⟳.</p>`;
-    return;
-  }
-  const snap = await fetch(`/api/snapshot/${encodeURIComponent(p.id)}`).then(r => r.json());
-  $("snapshotHint").textContent = `(${esc(p.id)} · подсветка = слова truth)`;
-  const section = (title, facts) => !facts?.length ? "" :
-    `<div class="sec-title">${title}</div>` + facts.map(f => `
-      <div class="fact">
-        <div class="spo">${highlight(f.subject || "")} · ${highlight(f.predicate || "")} · ${highlight(f.object || "")}</div>
-        ${f.statement ? `<div>${highlight(f.statement)}</div>` : ""}
-        <div class="meta">подкрепления: ${f.reinforcement_count ?? "?"}</div>
-      </div>`).join("");
-  box.innerHTML =
-    section("critical", snap.critical) + section("constructs", snap.constructs) + section("preferences", snap.preferences) ||
-    `<p class="hint">слепок пуст</p>`;
-}
+/* ── запись ── */
 
 async function savePoint() {
-  const m = state.selected;
+  const m = sel();
   if (!m) return;
   const payload = {
     id: $("f-id").value.trim(), level: $("f-level").value,
     sourceSession: m.session, sourceMessageId: m.id,
     trigger: $("f-trigger").value.trim(), truth: $("f-truth").value.trim(),
     must: splitList($("f-must").value), mustNot: splitList($("f-mustNot").value),
+    pattern: $("f-pattern").value.trim() || null,
     coverage: $("f-coverage").value.trim() || null
   };
   const resp = await post("/api/point", payload);
@@ -337,10 +922,10 @@ async function savePoint() {
 }
 
 async function journal(verdict, reason) {
-  const m = state.selected;
+  const m = sel();
   if (!m) return;
   const p = pointAt(m);
-  const payload = { candidateId: m.id, verdict, reason: reason || null, pointId: p ? p.id : null };
+  const payload = { candidateId: m.id, session: m.session, verdict, reason: reason || null, pointId: p ? p.id : null };
   const resp = await post("/api/journal", payload);
   flash(resp.error ? "✘ " + resp.error : "✔ журнал: " + verdict + (reason ? " / " + reason : ""));
   if (!resp.error) await loadAll();
@@ -355,14 +940,6 @@ async function post(url, body) {
 }
 
 function renderBottom() {
-  $("pointsTable").innerHTML = state.points.length
-    ? "<tr><th>id</th><th>lvl</th><th>T</th><th>trigger</th><th>must/mustNot</th><th>coverage</th></tr>" +
-      state.points.map(p => `<tr>
-        <td>${esc(p.id)}</td><td>${esc(p.level)}</td><td>${p.sourceMessageId}</td>
-        <td class="wrap">${esc(p.trigger)}</td>
-        <td>${(p.must || []).length}/${(p.mustNot || []).length}</td>
-        <td class="wrap">${p.coverage ? esc(p.coverage) : "<span class='hint'>—</span>"}</td></tr>`).join("")
-    : `<tr><td class="empty">пусто</td></tr>`;
   $("journalTable").innerHTML = state.journal.length
     ? "<tr><th>кандидат</th><th>вердикт</th><th>причина</th><th>точка</th><th>время</th></tr>" +
       state.journal.slice().reverse().map(j => `<tr>
@@ -381,7 +958,14 @@ function flash(text) {
   flashTimer = setTimeout(() => el.style.display = "none", 3500);
 }
 
-$("windowN").addEventListener("change", renderContext);
+$("windowN").addEventListener("change", () => {
+  const m = sel();
+  if (!m) return;
+  renderTimeline(m);
+  renderCoverage(pointAt(m), m);
+  renderProdFacts();
+});
+$("descOrder").addEventListener("change", () => { if (state.listMode === "log") renderLeft(); });
 loadAll();
 </script>
 </body>

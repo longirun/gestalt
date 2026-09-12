@@ -41,6 +41,16 @@ public final class LlmClient {
         public static final Usage ZERO = new Usage(0, 0, 0);
     }
 
+    /**
+     * Ответ обрезан лимитом токенов (greedy-петля или просто длинный) — парсеру нечего
+     * разбирать; не ретраится на том же temperature.
+     */
+    public static final class TruncatedResponseException extends RuntimeException {
+        public TruncatedResponseException(String message) {
+            super(message);
+        }
+    }
+
     public record ChatResult(String content, Usage usage) {
     }
 
@@ -49,13 +59,19 @@ public final class LlmClient {
     }
 
     public ChatResult chatWithUsage(String systemPrompt, String userPayload) throws Exception {
+        return chatWithUsage(systemPrompt, userPayload, 0);
+    }
+
+    public ChatResult chatWithUsage(String systemPrompt, String userPayload, double temperature) throws Exception {
         ObjectNode request = MAPPER.createObjectNode();
         request.put("model", model);
         request.putArray("messages")
                 .addObject().put("role", "system").put("content", systemPrompt);
         request.withArray("messages")
                 .addObject().put("role", "user").put("content", userPayload);
-        request.put("temperature", 0);
+        request.put("temperature", temperature);
+        // без явного лимита vLLM режет ответ по своему дефолту (~2k) посередине JSON
+        request.put("max_tokens", 16384);
         if (!reasoningEffort.isBlank()) {
             request.put("reasoning_effort", reasoningEffort);
         }
@@ -66,7 +82,9 @@ public final class LlmClient {
                 HttpResponse<String> response = http.send(
                         HttpRequest.newBuilder()
                                 .uri(URI.create(baseUrl + "/chat/completions"))
-                                .timeout(Duration.ofSeconds(120))
+                                // 300 сек: полная генерация max_tokens при greedy-петле
+                                // занимает 4-7 мин — 120 сек рвали легитимный ответ
+                                .timeout(Duration.ofSeconds(300))
                                 .header("Authorization", "Bearer " + apiKey)
                                 .header("Content-Type", "application/json")
                                 .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(request)))
@@ -76,7 +94,14 @@ public final class LlmClient {
                     throw new IllegalStateException("LLM HTTP " + response.statusCode() + ": " + response.body());
                 }
                 JsonNode root = MAPPER.readTree(response.body());
-                JsonNode contentNode = root.path("choices").path(0).path("message").path("content");
+                JsonNode choice = root.path("choices").path(0);
+                String finishReason = choice.path("finish_reason").asText("");
+                if ("length".equals(finishReason)) {
+                    // обрезанный ответ = битый JSON для парсера; при t=0 повтор даёт тот же
+                    // результат, поэтому без ретраев — сразу наверх (там температурный повтор)
+                    throw new TruncatedResponseException("LLM finish_reason=length (answer truncated by token limit)");
+                }
+                JsonNode contentNode = choice.path("message").path("content");
                 if (contentNode.isMissingNode()) {
                     throw new IllegalStateException("LLM response without content");
                 }
@@ -91,6 +116,8 @@ public final class LlmClient {
                 }
 
                 return new ChatResult(contentNode.asText(), usage);
+            } catch (TruncatedResponseException e) {
+                throw e;
             } catch (RuntimeException | InterruptedException | java.io.IOException e) {
                 last = e instanceof RuntimeException re ? re : new IllegalStateException(e);
                 if (attempt < 3) {

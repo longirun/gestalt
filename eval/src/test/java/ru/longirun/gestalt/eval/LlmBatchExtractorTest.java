@@ -94,6 +94,27 @@ class LlmBatchExtractorTest {
     }
 
     @Test
+    void parsesStringEvidenceIds() {
+        String json = """
+                [
+                  {
+                    "kind": "STATE",
+                    "subject": "project:demo-backend",
+                    "predicate": "dev_stand_ssh",
+                    "object": "developer@192.168.1.50",
+                    "domain": "WORLD",
+                    "scope": "PROJECT",
+                    "evidence_ids": ["3064", "3074", "not-a-number"]
+                  }
+                ]
+                """;
+
+        List<ExtractedFact> facts = LlmBatchExtractor.parseResponse(json);
+        assertEquals(1, facts.size());
+        assertEquals(List.of(3064L, 3074L), facts.getFirst().evidenceMessageIds());
+    }
+
+    @Test
     void normalizesUnknownDomainsAndScopes() {
         String json = """
                 [

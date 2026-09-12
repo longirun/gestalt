@@ -20,9 +20,21 @@ class BatcherTest {
     @Test
     void flushesByTokenBudget() {
         List<List<RawMessage>> batches = new Batcher(20, 100)
-                .batch(IntStream.rangeClosed(1, 5).mapToObj(i -> msg(i, 60)).toList());
+                .batch(IntStream.rangeClosed(1, 5).mapToObj(i -> msg(i, 30)).toList());
+        assertEquals(2, batches.size());
+        assertTrue(batches.getFirst().size() == 3 && batches.getLast().size() == 2);
+    }
+
+    @Test
+    void oversizedMessageDoesNotInflateFilledBatch() {
+        RawMessage n1 = msg(1, 500);
+        RawMessage n2 = msg(2, 400);
+        RawMessage huge = msg(3, 5000);
+        RawMessage n3 = msg(4, 100);
+        List<List<RawMessage>> batches = new Batcher(20, 1000).batch(List.of(n1, n2, huge, n3));
         assertEquals(3, batches.size());
-        assertTrue(batches.getFirst().size() == 2 && batches.get(1).size() == 2 && batches.getLast().size() == 1);
+        assertTrue(batches.get(0).size() == 2 && batches.get(1).size() == 1 && batches.get(2).size() == 1);
+        assertEquals(huge, batches.get(1).getFirst());
     }
 
     @Test

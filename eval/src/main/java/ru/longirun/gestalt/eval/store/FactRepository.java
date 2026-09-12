@@ -28,7 +28,7 @@ public final class FactRepository {
     private static final String FACT_COLUMNS =
             "id, owner_id, session_id, project_id, fact_domain, scope, kind, "
             + "subject_norm, predicate_norm, object_value, statement, "
-            + "conditions, reinforcement_count, w, created_at";
+            + "conditions, reinforcement_count, w, created_at, evidence";
     private final Connection connection;
 
     public record StoredFact(
@@ -46,7 +46,8 @@ public final class FactRepository {
             Map<String, String> conditions,
             int reinforcementCount,
             double w,
-            OffsetDateTime createdAt) {
+            OffsetDateTime createdAt,
+            List<Long> evidenceMessageIds) {
     }
 
     public FactRepository(Connection connection) {
@@ -235,7 +236,8 @@ public final class FactRepository {
                 fromJsonMap(rs.getString("conditions")),
                 rs.getInt("reinforcement_count"),
                 rs.getDouble("w"),
-                rs.getObject("created_at", OffsetDateTime.class));
+                rs.getObject("created_at", OffsetDateTime.class),
+                fromJsonLongList(rs.getString("evidence")));
     }
 
     private static String toJson(Object obj) {
@@ -257,6 +259,17 @@ public final class FactRepository {
             return MAPPER.readValue(json, new TypeReference<Map<String, String>>() {});
         } catch (Exception e) {
             return Map.of();
+        }
+    }
+
+    private static List<Long> fromJsonLongList(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return MAPPER.readValue(json, new TypeReference<List<Long>>() {});
+        } catch (Exception e) {
+            return List.of();
         }
     }
 }

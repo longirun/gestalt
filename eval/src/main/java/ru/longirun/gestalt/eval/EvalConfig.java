@@ -9,10 +9,11 @@ import java.util.Properties;
 /** Конфиг eval: eval/local.properties (вне VCS) + env-переопределения (LLM_API_KEY). */
 public record EvalConfig(
         String sourceDbUrl, String sourceDbUser, String sourceDbPassword,
-        String sourceDayFrom, String sourceDayTo, String sourceFixture,
+        String sourceDayFrom, String sourceDayTo, String sourceFixture, String sourceLmeFile,
         String targetDbUrl, String targetDbUser, String targetDbPassword,
         String llmBaseUrl, String llmApiKey, String llmModel, String llmReasoningEffort,
         int batchMaxMessages, int batchMaxTokens,
+        int windowSize,
         String portraitOwner, String portraitProject,
         String datasetFile) {
 
@@ -38,6 +39,7 @@ public record EvalConfig(
                 dayFrom,
                 dayTo,
                 props.getProperty("source.fixture", ""),
+                props.getProperty("source.lme.file", ""),
                 props.getProperty("target.db.url", "jdbc:postgresql://localhost:5433/gestalt_eval"),
                 props.getProperty("target.db.user", ""),
                 props.getProperty("target.db.password", ""),
@@ -47,6 +49,7 @@ public record EvalConfig(
                 props.getProperty("llm.reasoning-effort", ""),
                 Integer.parseInt(props.getProperty("batch.max-messages", "20")),
                 Integer.parseInt(props.getProperty("batch.max-tokens", "2000")),
+                Integer.parseInt(props.getProperty("window.size", "5")),
                 props.getProperty("portrait.owner", ""),
                 props.getProperty("portrait.project", ""),
                 props.getProperty("dataset.file", "dataset/points.jsonl"));

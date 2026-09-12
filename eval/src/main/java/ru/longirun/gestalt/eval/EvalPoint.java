@@ -12,10 +12,11 @@ public record EvalPoint(
         String id,
         String level,             // "L1" — предсказание; "C" — контроль (память должна молчать)
         String sourceSession,     // позиция T: сессия живого лога
-        long sourceMessageId,     // позиция T: id реплики
-        String trigger,           // запрос юзера в позиции T
+        long sourceMessageId,     // позиция T: id реплики-развилки M
+        String trigger,           // запрос юзера в позиции M
         String truth,             // что юзер реально сделал дальше (будущее лога, системе недоступно)
         List<String> must,        // ключевые слова/факты, обязательные в ответе
         List<String> mustNot,     // маркеры, которых в ответе быть не должно
-        String coverage) {        // W-обоснование: чем слепок на момент T покрывает истину; для C — null
+        String pattern,           // паттерн §2.9: какое знание о юзере/проекте тестируем; для C — null
+        String coverage) {        // W-обоснование: факт слепка, покрывающий истину; для C — null
 }

@@ -23,17 +23,17 @@ class SnapshotBuilderTest {
         StoredFact criticalEmail = new StoredFact(
                 UUID.randomUUID(), "user:anton", "s1", "p1", "WORLD", "USER", "STATE",
                 "user:anton", "git_email", "a.ivanov@orpheus.example", "",
-                Map.of("organization", "orpheus"), 1, 1.0, OffsetDateTime.now());
+                Map.of("organization", "orpheus"), 1, 1.0, OffsetDateTime.now(), List.of());
 
         StoredFact preferenceTrait = new StoredFact(
                 UUID.randomUUID(), "user:anton", "s1", "p1", "PSYCHE", "USER", "STATE",
                 "user:anton", "prefers_branch", "main", "Prefers main branch",
-                Map.of(), 3, 1.0, OffsetDateTime.now());
+                Map.of(), 3, 1.0, OffsetDateTime.now(), List.of());
 
         StoredFact worldConstruct = new StoredFact(
                 UUID.randomUUID(), "user:anton", "s1", "p1", "WORLD", "PROJECT", "STATE",
                 "project:libx", "build_tool", "gradle", "Java 21 Gradle",
-                Map.of(), 5, 1.0, OffsetDateTime.now());
+                Map.of(), 5, 1.0, OffsetDateTime.now(), List.of());
 
         SnapshotBuilder builder = new SnapshotBuilder();
         String json = builder.build("user:anton", "project:libx", List.of(criticalEmail, preferenceTrait, worldConstruct));

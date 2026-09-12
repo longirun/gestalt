@@ -22,9 +22,17 @@ source.day-to=
 # Фикстура вместо живого лога (отладка): путь к jsonl; пусто — живой PG
 source.fixture=
 
+# LongMemEval (positive control каркаса / внешний бенчмарк Р37): путь к json-массиву вопросов;
+# точки вида lme-<question_id>, портрет каждого вопроса изолирован (project = sourceSession)
+source.lme.file=
+
 # Калибровка батчинга (research/25 §1.2)
 batch.max-messages=20
 batch.max-tokens=2000
+
+# Окно видимого контекста N реплик до M (план 31 §2.3): едино для плеч,
+# им же replay вычисляет W0 = window_start(M) для W-проверки
+window.size=5
 
 # Гранула слепка (Р32)
 portrait.owner=user:anton

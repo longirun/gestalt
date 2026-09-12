@@ -1,0 +1,3 @@
+{"id":"LME-e47becba","level":"L1","sourceSession":"lme-e47becba","sourceMessageId":13,"trigger":"What degree did I graduate with?","truth":"Business Administration","must":["Business Administration"],"mustNot":[],"pattern":"lme:single-session-user","coverage":null}
+{"id":"LME-118b2229","level":"L1","sourceSession":"lme-118b2229","sourceMessageId":13,"trigger":"How long is my daily commute to work?","truth":"45 minutes each way","must":["45 minutes each way"],"mustNot":[],"pattern":"lme:single-session-user","coverage":null}
+{"id":"LME-51a45a95","level":"L1","sourceSession":"lme-51a45a95","sourceMessageId":13,"trigger":"Where did I redeem a $5 coupon on coffee creamer?","truth":"Target","must":["Target"],"mustNot":[],"pattern":"lme:single-session-user","coverage":null}

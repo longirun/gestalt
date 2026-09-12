@@ -47,9 +47,25 @@ public final class LlmBatchExtractor implements FactExtractor {
 
         long start = System.currentTimeMillis();
         try {
-            LlmClient.ChatResult res = llm.chatWithUsage(ExtractionPrompt.SYSTEM, payload.toString());
+            LlmClient.ChatResult res;
+            List<ExtractedFact> facts;
+            try {
+                res = llm.chatWithUsage(ExtractionPrompt.SYSTEM, payload.toString());
+                facts = parseResponse(res.content());
+            } catch (IllegalArgumentException | LlmClient.TruncatedResponseException e) {
+                // greedy-петля локального экстрактора (t=0): один факт тиражируется,
+                // пока ответ не оборвётся посередине JSON; лечится температурным повтором
+                System.err.println("[EXTRACTION RETRY] broken JSON, retrying batch with temperature 0.3: " + e.getMessage());
+                try {
+                    res = llm.chatWithUsage(ExtractionPrompt.SYSTEM, payload.toString(), 0.3);
+                    facts = parseResponse(res.content());
+                } catch (IllegalArgumentException | LlmClient.TruncatedResponseException e2) {
+                    System.err.println("[EXTRACTION RETRY] still broken, last try with temperature 0.7: " + e2.getMessage());
+                    res = llm.chatWithUsage(ExtractionPrompt.SYSTEM, payload.toString(), 0.7);
+                    facts = parseResponse(res.content());
+                }
+            }
             long duration = System.currentTimeMillis() - start;
-            List<ExtractedFact> facts = parseResponse(res.content());
             return new ExtractionBatchResult(facts, res.usage(), duration);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to extract facts for batch: " + e.getMessage(), e);
@@ -123,6 +139,13 @@ public final class LlmBatchExtractor implements FactExtractor {
                     for (JsonNode id : evNode) {
                         if (id.isNumber()) {
                             evidence.add(id.asLong());
+                        } else if (id.isTextual()) {
+                            // локальные экстракторы шлют evidence_ids строками ("3064"), не числами
+                            try {
+                                evidence.add(Long.parseLong(id.asText().trim()));
+                            } catch (NumberFormatException ignored) {
+                                // не-числовая ссылка — пропускаем, остальной evidence сохраняется
+                            }
                         }
                     }
                 }
