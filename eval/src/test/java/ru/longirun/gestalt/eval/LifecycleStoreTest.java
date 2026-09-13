@@ -67,7 +67,7 @@ class LifecycleStoreTest {
                     CREATE TABLE IF NOT EXISTS runs (
                         id                BIGSERIAL PRIMARY KEY,
                         experiment        TEXT NOT NULL REFERENCES experiments(slug) ON DELETE CASCADE,
-                        stage             TEXT NOT NULL CHECK (stage IN ('replay','arms','oracles','report','migrate')),
+                        stage             TEXT NOT NULL CHECK (stage IN ('replay','arms','oracles','wcheck','report')),
                         status            TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','done','failed','interrupted')),
                         llm_calls         BIGINT,
                         prompt_tokens     BIGINT,
@@ -113,10 +113,7 @@ class LifecycleStoreTest {
                         at             TIMESTAMPTZ NOT NULL DEFAULT now(),
                         PRIMARY KEY (experiment, point_id))
                     """);
-            // 005: пер-точечные слепки + стадия wcheck (inline — как SchemaMigrator)
-            st.execute("ALTER TABLE runs DROP CONSTRAINT IF EXISTS runs_stage_check");
-            st.execute("ALTER TABLE runs ADD CONSTRAINT runs_stage_check"
-                    + " CHECK (stage IN ('replay','arms','oracles','report','migrate','wcheck'))");
+            // 005: пер-точечные слепки (inline — как SchemaMigrator)
             st.execute("""
                     CREATE TABLE IF NOT EXISTS snapshots (
                         experiment TEXT NOT NULL REFERENCES experiments(slug) ON DELETE CASCADE,
@@ -170,9 +167,9 @@ class LifecycleStoreTest {
         ResultStore results = new ResultStore(connection);
         experiments.upsert(SLUG, "lme", null, "{}", null, null, "active", null);
 
-        long runId = runs.start(SLUG, "migrate", "self-test");
+        long runId = runs.start(SLUG, "wcheck", "self-test");
         runs.finish(runId, "done");
-        assertEquals(runs.findDone(SLUG, "migrate").orElseThrow(), runId);
+        assertEquals("done", runs.list(SLUG).getFirst().status());
 
         results.upsertAnswer(SLUG, "P1", "a", "ответ A", "m", 10L, 7L, 3L, 120L, false, runId,
                 OffsetDateTime.now());

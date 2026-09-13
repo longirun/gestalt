@@ -7,7 +7,6 @@ import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Прогоны стадий (план 31 §7.1/§7.3): история попыток — в базе, а не в именах логов.
@@ -80,19 +79,6 @@ public final class RunStore {
             ps.setString(1, experiment);
             ps.setString(2, stage);
             return ps.executeUpdate();
-        }
-    }
-
-    /** Готовый run стадии (идемпотентность migrate: переиспользуем, а не плодим). */
-    public Optional<Long> findDone(String experiment, String stage) throws SQLException {
-        String sql = "SELECT id FROM runs WHERE experiment = ? AND stage = ? AND status = 'done'"
-                + " ORDER BY started_at DESC LIMIT 1";
-        try (PreparedStatement ps = connection.prepareStatement(sql)) {
-            ps.setString(1, experiment);
-            ps.setString(2, stage);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? Optional.of(rs.getLong(1)) : Optional.empty();
-            }
         }
     }
 

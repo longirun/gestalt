@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS experiments (
 CREATE TABLE IF NOT EXISTS runs (
     id                BIGSERIAL PRIMARY KEY,
     experiment        TEXT NOT NULL REFERENCES experiments(slug) ON DELETE CASCADE,
-    stage             TEXT NOT NULL CHECK (stage IN ('replay', 'arms', 'oracles', 'report', 'migrate')),
+    stage             TEXT NOT NULL CHECK (stage IN ('replay', 'arms', 'oracles', 'wcheck', 'report')),
     status            TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'done', 'failed', 'interrupted')),
     -- экономика прогона: заполняется writer-проходом (вторым заходом)
     llm_calls         BIGINT,
