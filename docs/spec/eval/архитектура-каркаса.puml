@@ -38,6 +38,8 @@ skinparam arrow {
 [Arms E3\nA/B тестирование] as Arms
 [Oracles E4\nМашинные проверки] as Oracles
 [Report E5\nСтатистический отчет] as Report
+[Runs\nИстория прогонов] as RunsCmd
+[DelRun\nУдаление прогона] as DelRunCmd
 
 ' Align commands vertically in column 2 (in LR mode, -right-> is vertically downwards)
 Replay -[hidden]right-> Candidates
@@ -46,6 +48,8 @@ WCheck -[hidden]right-> Lme
 Lme -[hidden]right-> Arms
 Arms -[hidden]right-> Oracles
 Oracles -[hidden]right-> Report
+Report -[hidden]right-> RunsCmd
+RunsCmd -[hidden]right-> DelRunCmd
 
 ' Arrows from Runner to Commands
 Runner --> Replay
@@ -55,6 +59,8 @@ Runner --> Lme
 Runner --> Arms
 Runner --> Oracles
 Runner --> Report
+Runner --> RunsCmd
+Runner --> DelRunCmd
 
 ' Data sources
 package "Источники данных" as Sources {
@@ -77,5 +83,29 @@ Builder -down-> Snaps
 
 ' Keep Sources aligned above Replay pipeline
 Replay -[hidden]down-> Sources
+
+' Lifecycle: PG — источник истины (план 31 §7)
+package "gestalt_eval — источник истины" as Lifecycle {
+  [Experiments\nреестр, ingest_fp / answer_fp] as Exps
+  [Runs\nстадия, статус, экономика] as RunsTbl
+  [Answers / Verdicts / WChecks / Snapshots\nканонические артефакты] as Arts
+}
+
+[Viewer\nEvalViewerTest — досье точек] as Viewer
+
+RunsCmd --> RunsTbl
+DelRunCmd --> RunsTbl
+Arms ..> Arts
+Oracles ..> Arts
+WCheck ..> Arts
+Viewer --> Arts
+' Layout: lifecycle под пайплайном replay
+Repo -[hidden]down-> Exps
+
+note bottom of Lifecycle
+  Каждая стадия пишется в обвязке run'а (running → done/failed/interrupted),
+  экономика — llm_calls / токены. Смена ingest_fp — новый эксперимент.
+  out/ — стираемый дамп (diff/grep, кэш viewer'а).
+end note
 
 @enduml
