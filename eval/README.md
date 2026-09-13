@@ -3,7 +3,8 @@
 Предиктивная метрика v1: тезис-чек «портрет несёт информацию о будущем поведении юзера».
 Парные плечи A/B (инъекция PortraitSnapshot против контроля), машинные оракулы, lift на решённых парах.
 Задание, рамка и статистика go/no-go — **`docs/spec/eval/28 - ADR eval-каркаса (Р45).md`**;
-порядок стадий — `drafts/31 - План реализации eval-каркаса (Р45).md`.
+порядок стадий и рабочий стол — **`drafts/31 - Рабочий стол eval-каркаса (Р45).md`**;
+схема архитектуры и потока данных — **[`docs/spec/eval/архитектура-каркаса.puml`](../docs/spec/eval/архитектура-каркаса.puml)**.
 
 ## Запуск
 
@@ -19,9 +20,9 @@ cp eval/local.properties.example eval/local.properties   # заполнить к
 продолжает с чекпоинта (`replay_checkpoints`). Для отладки без живого лога — `source.fixture`
 (путь к jsonl) + `dataset.file` на маленьком датасете. `arms [limit]` (E3): плечи A/B на триггерах —
 A с дайджестом слепка в системном промпте, B контроль; `temperature=0`, отвечающая модель
-`llm.answer.*` (fallback `llm.*`), ответы в `out/answers/<pointId>.{a,b}.json` (существующие не
+`llm.answer.*` (fallback `llm.*`), канон ответов — `gestalt_eval.answers` (существующие пары не
 перегенерируются). `oracles` (E4): детерминированные must/mustNot-проверки ответов (вхождение
-с границами слов, без судей — ярус smoke) → `out/oracles.jsonl`; C-точки — leak-гейт.
+с границами слов, без судей — ярус smoke) → `gestalt_eval.verdicts`; C-точки — leak-гейт.
 `report` (E5): сводка → `out/report.md`: pass A/B, lift, точный МакНемар на рассогласованных
 парах (α=0.05), leak-veto исключаются из n, both-fail — список для судьи/ручного разбора.
 `all` — весь конвейер подряд (replay → arms → oracles → report).

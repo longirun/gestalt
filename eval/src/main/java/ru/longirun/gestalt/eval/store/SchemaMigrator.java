@@ -5,13 +5,15 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.util.Scanner;
 
-/** Применяет sql/001..003 к целевой базе (gestalt_eval): факты, слепки, чекпоинты replay. */
+/** Применяет sql/001..005 к целевой базе (gestalt_eval): факты, слепки, чекпоинты, lifecycle, пер-точечные слепки. */
 public final class SchemaMigrator {
 
     public static void migrate(Connection connection) throws Exception {
         apply(connection, "/sql/001_schema.sql");
         apply(connection, "/sql/002_dynamics.sql");
         apply(connection, "/sql/003_eval_checkpoint.sql");
+        apply(connection, "/sql/004_lifecycle.sql");
+        apply(connection, "/sql/005_point_snapshots.sql");
     }
 
     private static void apply(Connection connection, String resource) throws Exception {

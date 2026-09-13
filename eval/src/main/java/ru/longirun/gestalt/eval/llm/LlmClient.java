@@ -37,7 +37,7 @@ public final class LlmClient {
         this.reasoningEffort = reasoningEffort;
     }
 
-    /** Имя модели — для метаданных ответов плеч (out/answers/*.json). */
+    /** Имя модели — для метаданных ответов плеч (gestalt_eval.answers). */
     public String model() {
         return model;
     }

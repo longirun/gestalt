@@ -177,6 +177,10 @@
     <span class="tab active" id="tabPoints" onclick="setMode('points')">точки</span>
     <span class="tab" id="tabLog" onclick="setMode('log')">лог разметки</span>
   </div>
+  <label class="hint" style="display:flex;align-items:center;gap:6px">
+    эксп:
+    <select id="expSelect" onchange="onExpChange()" style="font-weight:600;max-width:240px"></select>
+  </label>
   <span class="stats" id="stats"></span>
   <span style="flex:1"></span>
   <label class="hint">окно N <input id="windowN" type="number" min="1" max="20" value="5" style="width:48px"></label>
@@ -297,7 +301,8 @@
 "use strict";
 const state = { day: [], points: [], snapshots: [], journal: [], wcheck: [],
   prodFacts: [], prodError: "", prodIrrelevant: false, answers: {}, oracles: [],
-  selected: null, listMode: "points", pointFilter: "all" };
+  selected: null, listMode: "points", pointFilter: "all",
+  experiments: [], currentExp: null, expError: "" };
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -328,6 +333,52 @@ const winnerOf = (o) => o.a?.pass ? "a" : "b";
 const spo = (f) => `${f.subject || ""} · ${f.predicate || ""} · ${f.object || ""}`;
 const pickText = (a) => a.answer || a.text || a.content || "";
 
+function currentExpParam() {
+  return state.currentExp ? `?exp=${encodeURIComponent(state.currentExp)}` : "";
+}
+
+function onExpChange() {
+  const val = $("expSelect").value;
+  state.currentExp = val || null;
+  const url = new URL(window.location);
+  if (state.currentExp) {
+    url.searchParams.set("exp", state.currentExp);
+  } else {
+    url.searchParams.delete("exp");
+  }
+  window.history.pushState({}, "", url);
+  loadAll();
+}
+
+function renderExperiments(expData) {
+  state.experiments = expData.experiments || [];
+  state.expError = expData.error || "";
+  if (!state.currentExp && expData.selected) {
+    state.currentExp = expData.selected;
+    const url = new URL(window.location);
+    url.searchParams.set("exp", state.currentExp);
+    window.history.replaceState({}, "", url);
+  }
+  const sel = $("expSelect");
+  if (!sel) return;
+  if (!state.experiments.length) {
+    sel.innerHTML = `<option value="">${esc(state.expError ? "ошибка: " + state.expError : "нет экспериментов")}</option>`;
+    sel.title = state.expError || "";
+    return;
+  }
+  sel.title = state.expError ? `Ошибка: ${state.expError}` : (state.currentExp || "");
+  sel.innerHTML = state.experiments.map(e => {
+    const isAct = e.status === "active";
+    const prefix = isAct ? "● " : "○ ";
+    const suffix = isAct ? "" : " (archived)";
+    const selAttr = e.slug === state.currentExp ? " selected" : "";
+    return `<option value="${esc(e.slug)}"${selAttr}>${prefix}${esc(e.slug)}${suffix} [${esc(e.material)}]</option>`;
+  }).join("");
+  if (state.currentExp) {
+    sel.value = state.currentExp;
+  }
+}
+
 function setFilter(f) {
   state.pointFilter = f;
   document.querySelectorAll("#pointFilters .chip").forEach(el => {
@@ -349,12 +400,36 @@ async function parseJsonl(resp) {
 }
 
 async function loadAll() {
+  const urlExp = new URLSearchParams(window.location.search).get("exp");
+  if (urlExp && !state.currentExp) {
+    state.currentExp = urlExp;
+  }
+  const q = currentExpParam();
+  const expFetch = fetch(`/api/experiments${q}`).then(r => r.json()).catch(err => ({ error: err.message }));
+
+  let expData;
+  if (!state.currentExp) {
+    expData = await expFetch;
+    renderExperiments(expData);
+  }
+
+  const expQ = currentExpParam();
   const [day, points, snapshots, journal, wcheck, prod, answers, oracles] = await Promise.all([
-    fetch("/api/day").then(parseJsonl), fetch("/api/points").then(parseJsonl),
-    fetch("/api/snapshots").then(r => r.json()), fetch("/api/journal").then(parseJsonl),
-    fetch("/api/wcheck").then(parseJsonl), fetch("/api/prod-facts").then(r => r.json()),
-    fetch("/api/answers").then(r => r.json()), fetch("/api/oracles").then(parseJsonl)
+    fetch(`/api/day${expQ}`).then(parseJsonl),
+    fetch(`/api/points${expQ}`).then(parseJsonl),
+    fetch(`/api/snapshots${expQ}`).then(r => r.json()),
+    fetch(`/api/journal${expQ}`).then(parseJsonl),
+    fetch(`/api/wcheck${expQ}`).then(parseJsonl),
+    fetch(`/api/prod-facts${expQ}`).then(r => r.json()),
+    fetch(`/api/answers${expQ}`).then(r => r.json()),
+    fetch(`/api/oracles${expQ}`).then(parseJsonl)
   ]);
+
+  if (!expData) {
+    expData = await expFetch;
+    renderExperiments(expData);
+  }
+
   state.day = day; state.points = points; state.snapshots = snapshots;
   state.journal = journal; state.wcheck = wcheck;
   state.prodFacts = Array.isArray(prod) ? prod : (prod.facts || []);
@@ -807,8 +882,7 @@ function renderAB(p) {
   const arms = state.answers[p.id] || {};
   if (!o && !arms.a && !arms.b) {
     box.innerHTML = hint(`плечи не прогонялись: <code>./gradlew -p eval run -Pargs=arms</code> →
-      <code>…=oracles</code> → ⟳.<br>контракт: <code>out/answers/${esc(p.id)}.{a,b}.json</code>
-      · <code>out/oracles.jsonl</code>`);
+      <code>…=oracles</code> → ⟳.<br>эксперимент: <code>${esc(state.currentExp || "—")}</code> (данные из gestalt_eval, §7)`);
     return;
   }
   const terms = [...(p.must || []), ...(p.mustNot || [])].map(t => norm(t).trim()).filter(Boolean);
@@ -854,7 +928,7 @@ async function fillSnapshot(p) {
     box.innerHTML = hint(`слепка ${esc(p.id)} нет — прогони replay, потом ⟳.`);
     return;
   }
-  const snap = await fetch(`/api/snapshot/${encodeURIComponent(p.id)}`).then(r => r.json());
+  const snap = await fetch(`/api/snapshot/${encodeURIComponent(p.id)}${currentExpParam()}`).then(r => r.json());
   $("snapshotHint").textContent = `(${esc(p.id)} · подсветка = слова truth)`;
   const section = (title, facts) => !facts?.length ? "" :
     `<div class="sec-title">${title}</div>` + facts.map(f => `
@@ -989,7 +1063,7 @@ async function savePoint() {
     pattern: $("f-pattern").value.trim() || null,
     coverage: $("f-coverage").value.trim() || null
   };
-  const resp = await post("/api/point", payload);
+  const resp = await post("/api/point" + currentExpParam(), payload);
   flash(resp.error ? "✘ " + resp.error : "✔ точка сохранена: " + payload.id);
   if (!resp.error) await loadAll();
 }
@@ -999,7 +1073,7 @@ async function journal(verdict, reason) {
   if (!m) return;
   const p = pointAt(m);
   const payload = { candidateId: m.id, session: m.session, verdict, reason: reason || null, pointId: p ? p.id : null };
-  const resp = await post("/api/journal", payload);
+  const resp = await post("/api/journal" + currentExpParam(), payload);
   flash(resp.error ? "✘ " + resp.error : "✔ журнал: " + verdict + (reason ? " / " + reason : ""));
   if (!resp.error) await loadAll();
 }
@@ -1039,6 +1113,10 @@ $("windowN").addEventListener("change", () => {
   renderProdFacts();
 });
 $("descOrder").addEventListener("change", () => { if (state.listMode === "log") renderLeft(); });
+window.addEventListener("popstate", () => {
+  state.currentExp = new URLSearchParams(window.location.search).get("exp") || null;
+  loadAll();
+});
 loadAll();
 </script>
 </body>

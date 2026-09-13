@@ -14,7 +14,11 @@ import ru.longirun.gestalt.eval.portrait.ReconciliationJob;
 import ru.longirun.gestalt.eval.portrait.SnapshotBuilder;
 import ru.longirun.gestalt.eval.portrait.SnapshotStore;
 import ru.longirun.gestalt.eval.store.CheckpointStore;
+import ru.longirun.gestalt.eval.store.ExperimentStore;
 import ru.longirun.gestalt.eval.store.FactRepository;
+import ru.longirun.gestalt.eval.store.PointSnapshotStore;
+import ru.longirun.gestalt.eval.store.ResultStore;
+import ru.longirun.gestalt.eval.store.RunStore;
 import ru.longirun.gestalt.eval.store.SchemaMigrator;
 
 import java.io.IOException;
@@ -40,13 +44,15 @@ public final class EvalRunner {
         EvalConfig config = EvalConfig.load(EvalPaths.resolve("eval/local.properties"));
 
         switch (step) {
-            case "replay" -> runReplay(config);
+            case "replay" -> runReplay(config, args);
             case "candidates" -> runCandidates(config, args);
             case "wcheck" -> runWCheck(config, args);
             case "lme" -> runLmeConvert(config, args);
             case "arms" -> runArms(config, args);
-            case "oracles" -> runOracles(config);
-            case "report" -> runReport(config);
+            case "oracles" -> runOracles(config, args);
+            case "report" -> runReport(config, args);
+            case "runs" -> runRuns(config, args);
+            case "delrun" -> runDelRun(config, args);
             case "all" -> runAll(config);
             default -> throw new IllegalArgumentException("unknown step: " + step);
         }
@@ -97,8 +103,10 @@ public final class EvalRunner {
      * Insufficient grid (M раньше N реплик от начала) — точка откладывается, не reject
      * и не слепок. Инвариант: в gestalt_eval попадают только факты из реплик,
      * обработанных до заморозки слепка.
+     * Writer-проход §7: слепки каноничны в snapshots (PG), out/snapshots — дамп;
+     * прогон оборачивается в run (экономика, статусы, резюм = новый run).
      */
-    private static void runReplay(EvalConfig config) throws Exception {
+    private static void runReplay(EvalConfig config, String[] args) throws Exception {
         if (config.llmApiKey().isBlank()) {
             throw new IllegalStateException("llm.api-key required: replay без LLM бессмыслен (план 31 §2.6)");
         }
@@ -113,6 +121,7 @@ public final class EvalRunner {
         }
         Map<String, List<EvalPoint>> bySession = groupBySession(points);
         Path snapshotsDir = EvalPaths.evalDir().resolve("out/snapshots");
+        String slugArg = args.length > 1 && !args[1].isBlank() ? args[1] : null;
 
         int written = 0;
         int w0Written = 0;
@@ -123,105 +132,121 @@ public final class EvalRunner {
         try (Connection conn = DriverManager.getConnection(
                 config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
             SchemaMigrator.migrate(conn);
-            FactRepository repo = new FactRepository(conn);
-            DedupPipeline pipeline = new DedupPipeline(repo, new NearDupMatcher());
-            CheckpointStore checkpoints = new CheckpointStore(conn);
-            ReconciliationJob job = new ReconciliationJob(repo, new SnapshotBuilder(), new SnapshotStore(conn));
-            LlmBatchExtractor extractor = new LlmBatchExtractor(new LlmClient(
-                    config.llmBaseUrl(), config.llmApiKey(), config.llmModel(), config.llmReasoningEffort()));
-            Batcher batcher = new Batcher(config.batchMaxMessages(), config.batchMaxTokens());
+            String experiment = Experiments.forReplay(conn, config, points, slugArg);
+            RunStore runs = new RunStore(conn);
+            int stale = runs.interruptStale(experiment, "replay");
+            if (stale > 0) {
+                System.out.printf("[REPLAY] %d застрявших running-прогонов replay помечены interrupted (§7.3)%n", stale);
+            }
+            long runId = runs.start(experiment, "replay", "слепки → snapshots (PG) + дамп out/");
+            PointSnapshotStore snapshotStore = new PointSnapshotStore(conn);
+            try {
+                FactRepository repo = new FactRepository(conn);
+                DedupPipeline pipeline = new DedupPipeline(repo, new NearDupMatcher());
+                CheckpointStore checkpoints = new CheckpointStore(conn);
+                ReconciliationJob job = new ReconciliationJob(repo, new SnapshotBuilder(), new SnapshotStore(conn));
+                LlmBatchExtractor extractor = new LlmBatchExtractor(new LlmClient(
+                        config.llmBaseUrl(), config.llmApiKey(), config.llmModel(), config.llmReasoningEffort()));
+                Batcher batcher = new Batcher(config.batchMaxMessages(), config.batchMaxTokens());
 
-            for (Map.Entry<String, List<EvalPoint>> entry : bySession.entrySet()) {
-                String sourceSession = entry.getKey();
-                String sessionId = "session:" + sourceSession;
-                String owner = portraitOwner(config, sourceSession);
-                String project = portraitProject(config, sourceSession);
-                List<EvalPoint> sessionPoints = entry.getValue().stream()
-                        .sorted(java.util.Comparator.comparingLong(EvalPoint::sourceMessageId))
-                        .toList();
-                List<RawMessage> log = readLog(config, sourceSession);
-                if (log.isEmpty()) {
-                    throw new IllegalStateException("no messages for session '%s' in %s..%s: check source.db.* and source.day-from/to"
-                            .formatted(sourceSession, config.sourceDayFrom(), config.sourceDayTo()));
-                }
-                long cursor = checkpoints.lastProcessedMessageId(sessionId);
-                System.out.printf("[REPLAY] session '%s': %d log messages, checkpoint %d, window N=%d, %d point(s)%n",
-                        sourceSession, log.size(), cursor, config.windowSize(), sessionPoints.size());
-
-                // граница = реплика, до которой включительно нужно инжестить до снятия слепка;
-                // при равной границе W0-слепок снимается первым (его состояние ⊆ состоянию M-пробы)
-                record Work(long bound, int tieBreak, EvalPoint point, boolean w0) {
-                }
-                List<Work> works = new ArrayList<>();
-                for (EvalPoint point : sessionPoints) {
-                    boolean needM = !Files.exists(snapshotsDir.resolve(point.id() + ".json"));
-                    boolean needW0 = "L1".equals(point.level())
-                            && !Files.exists(snapshotsDir.resolve(point.id() + ".w0.json"));
-                    if (!needM && !needW0) {
-                        skipped++;
-                        System.out.printf("[REPLAY] point %s: snapshots exist, skipped%n", point.id());
-                        continue;
+                for (Map.Entry<String, List<EvalPoint>> entry : bySession.entrySet()) {
+                    String sourceSession = entry.getKey();
+                    String sessionId = "session:" + sourceSession;
+                    String owner = portraitOwner(config, sourceSession);
+                    String project = portraitProject(config, sourceSession);
+                    List<EvalPoint> sessionPoints = entry.getValue().stream()
+                            .sorted(java.util.Comparator.comparingLong(EvalPoint::sourceMessageId))
+                            .toList();
+                    List<RawMessage> log = readLog(config, sourceSession);
+                    if (log.isEmpty()) {
+                        throw new IllegalStateException("no messages for session '%s' in %s..%s: check source.db.* and source.day-from/to"
+                                .formatted(sourceSession, config.sourceDayFrom(), config.sourceDayTo()));
                     }
+                    long cursor = checkpoints.lastProcessedMessageId(sessionId);
+                    System.out.printf("[REPLAY] session '%s': %d log messages, checkpoint %d, window N=%d, %d point(s)%n",
+                            sourceSession, log.size(), cursor, config.windowSize(), sessionPoints.size());
 
-                    long m = point.sourceMessageId();
-                    int idxM = indexOfMessage(log, m);
-                    if (idxM < 0) {
-                        throw new IllegalStateException("point %s references message %d outside the log slice"
-                                .formatted(point.id(), m));
+                    // граница = реплика, до которой включительно нужно инжестить до снятия слепка;
+                    // при равной границе W0-слепок снимается первым (его состояние ⊆ состоянию M-пробы)
+                    record Work(long bound, int tieBreak, EvalPoint point, boolean w0) {
                     }
-
-                    if (needW0) {
-                        long w0 = windowStartId(log, idxM, config.windowSize());
-                        if (w0 < 0) {
-                            postponed++;
-                            System.out.printf("[REPLAY] point %s: POSTPONED insufficient grid (M is among first %d messages)%n",
-                                    point.id(), config.windowSize() + 1);
+                    List<Work> works = new ArrayList<>();
+                    for (EvalPoint point : sessionPoints) {
+                        boolean needM = !snapshotStore.exists(experiment, point.id(), "m");
+                        boolean needW0 = "L1".equals(point.level())
+                                && !snapshotStore.exists(experiment, point.id(), "w0");
+                        if (!needM && !needW0) {
+                            skipped++;
+                            System.out.printf("[REPLAY] point %s: snapshots exist (PG), skipped%n", point.id());
                             continue;
                         }
-                        works.add(new Work(w0, 0, point, true));
-                    }
-                    if (needM) {
-                        // граница M-среза — реальная реплика перед M: дырявые id делают m-1 виртуальным,
-                        // а соседние точки с одинаковой M не должны валиться дублем (слепок из текущего состояния)
-                        long prevId = idxM > 0 ? log.get(idxM - 1).id() : 0;
-                        works.add(new Work(prevId, 1, point, false));
-                    }
-                }
-                works.sort(java.util.Comparator.comparingLong(Work::bound)
-                        .thenComparingInt(Work::tieBreak));
 
-                for (Work work : works) {
-                    if (work.bound() > cursor) {
-                        ingest(owner, project, pipeline, extractor, batcher, checkpoints, metrics,
-                                log, cursor, work.bound(), sessionId);
-                        cursor = work.bound();
-                    } else if (work.bound() < cursor) {
+                        long m = point.sourceMessageId();
+                        int idxM = indexOfMessage(log, m);
+                        if (idxM < 0) {
+                            throw new IllegalStateException("point %s references message %d outside the log slice"
+                                    .formatted(point.id(), m));
+                        }
+
+                        if (needW0) {
+                            long w0 = windowStartId(log, idxM, config.windowSize());
+                            if (w0 < 0) {
+                                postponed++;
+                                System.out.printf("[REPLAY] point %s: POSTPONED insufficient grid (M is among first %d messages)%n",
+                                        point.id(), config.windowSize() + 1);
+                                continue;
+                            }
+                            works.add(new Work(w0, 0, point, true));
+                        }
+                        if (needM) {
+                            // граница M-среза — реальная реплика перед M: дырявые id делают m-1 виртуальным,
+                            // а соседние точки с одинаковой M не должны валиться дублем (слепок из текущего состояния)
+                            long prevId = idxM > 0 ? log.get(idxM - 1).id() : 0;
+                            works.add(new Work(prevId, 1, point, false));
+                        }
+                    }
+                    works.sort(java.util.Comparator.comparingLong(Work::bound)
+                            .thenComparingInt(Work::tieBreak));
+
+                    for (Work work : works) {
+                        if (work.bound() > cursor) {
+                            ingest(owner, project, pipeline, extractor, batcher, checkpoints, metrics,
+                                    log, cursor, work.bound(), sessionId);
+                            cursor = work.bound();
+                        } else if (work.bound() < cursor) {
+                            if (work.w0()) {
+                                // теоретически недостижимо (работы по возрастанию границы), но страховка
+                                // от рассинхрона чекпоинт/слепки при ручных правках snapshots
+                                postponed++;
+                                System.out.printf("[REPLAY] point %s: POSTPONED W0 %d behind cursor %d%n",
+                                        work.point().id(), work.bound(), cursor);
+                                continue;
+                            }
+                            throw new IllegalStateException("snapshot missing for point %s but checkpoint %d is past bound %d: "
+                                    .formatted(work.point().id(), cursor, work.bound())
+                                    + "слепок нельзя честно перестроить (в БД факты за границей) — восстановите snapshots "
+                                    + "или сбросьте gestalt_eval и прогоните replay заново");
+                        }
+                        String json = job.reconcile(owner, project);
+                        String kind = work.w0() ? "w0" : "m";
+                        snapshotStore.upsert(experiment, work.point().id(), kind, json, runId);
+                        writeAtomically(snapshotsDir.resolve(work.point().id()
+                                + ("w0".equals(kind) ? ".w0.json" : ".json")), json);
                         if (work.w0()) {
-                            // теоретически недостижимо (работы по возрастанию границы), но страховка
-                            // от рассинхрона чекпоинт/слепки при ручных правках out/snapshots
-                            postponed++;
-                            System.out.printf("[REPLAY] point %s: POSTPONED W0 %d behind cursor %d%n",
-                                    work.point().id(), work.bound(), cursor);
-                            continue;
+                            w0Written++;
+                            System.out.printf("[REPLAY] point %s: W0=%d -> snapshot (facts <= W0)%n",
+                                    work.point().id(), work.bound());
+                        } else {
+                            written++;
+                            System.out.printf("[REPLAY] point %s: M=%d -> snapshot (facts < M, exclusive)%n",
+                                    work.point().id(), work.point().sourceMessageId());
                         }
-                        throw new IllegalStateException("snapshot missing for point %s but checkpoint %d is past bound %d: "
-                                .formatted(work.point().id(), cursor, work.bound())
-                                + "слепок нельзя честно перестроить (в БД факты за границей) — восстановите out/snapshots "
-                                + "или сбросьте gestalt_eval и прогоните replay заново");
-                    }
-                    String file = work.point().id() + (work.w0() ? ".w0.json" : ".json");
-                    writeAtomically(snapshotsDir.resolve(file),
-                            job.reconcile(owner, project));
-                    if (work.w0()) {
-                        w0Written++;
-                        System.out.printf("[REPLAY] point %s: W0=%d -> snapshot (facts <= W0)%n",
-                                work.point().id(), work.bound());
-                    } else {
-                        written++;
-                        System.out.printf("[REPLAY] point %s: M=%d -> snapshot (facts < M, exclusive)%n",
-                                work.point().id(), work.point().sourceMessageId());
                     }
                 }
+                runs.finish(runId, "done", metrics.llmCalls, metrics.promptTokens, metrics.completionTokens);
+            } catch (Exception e) {
+                runs.finish(runId, "failed", metrics.llmCalls, metrics.promptTokens, metrics.completionTokens);
+                throw e;
             }
         }
 
@@ -282,93 +307,114 @@ public final class EvalRunner {
     /**
      * W-проверка L1-точек (план 31 §2.9): слепки W0 и M + evidence из gestalt_eval →
      * валидные факты-кандидаты покрытия (max evidence ≤ W0), in-window, encoding-lag.
-     * Отчёт перезаписывается в out/wcheck.jsonl (viewer и E5 читают его).
+     * Writer-проход §7: слепки читает из snapshots (PG), результат пишет в wchecks (PG).
+     * Прогон оборачивается в run (история попыток).
      */
     private static void runWCheck(EvalConfig config, String[] args) throws Exception {
         String only = args.length > 1 ? args[1] : "";
         List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(config.datasetFile()));
-        Path snapshotsDir = EvalPaths.evalDir().resolve("out/snapshots");
-        Path outFile = EvalPaths.evalDir().resolve("out/wcheck.jsonl");
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
-        Map<String, Map<UUID, List<Long>>> evidenceByProject = new LinkedHashMap<>();
+        int checked = 0;
+        int answerCovered = 0;
+        int insufficient = 0;
         try (Connection conn = DriverManager.getConnection(
                 config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            SchemaMigrator.migrate(conn);
+            ExperimentStore experiments = new ExperimentStore(conn);
+            String experiment = Experiments.resolveActive(experiments, null);
+            RunStore runs = new RunStore(conn);
+            PointSnapshotStore snapshots = new PointSnapshotStore(conn);
+            ResultStore results = new ResultStore(conn);
+
             if (config.portraitOwner().isBlank()
                     && points.stream().anyMatch(p -> !isLme(config, p.sourceSession()))) {
                 throw new IllegalStateException("portrait.owner must be set in local.properties for non-LME points");
             }
-            FactRepository repo = new FactRepository(conn);
-            Map<String, String> ownerByProject = new LinkedHashMap<>();
-            for (EvalPoint p : points) {
-                String project = portraitProject(config, p.sourceSession());
-                String owner = portraitOwner(config, p.sourceSession());
-                ownerByProject.merge(project, owner,
-                        (a, b) -> a.equals(b) ? a : throwMixedOwner(project, a, b));
+            int stale = runs.interruptStale(experiment, "wcheck");
+            if (stale > 0) {
+                System.out.printf("[WCHECK] %d застрявших running-прогонов wcheck помечены interrupted (§7.3)%n", stale);
             }
-            if (ownerByProject.containsKey("")) {
-                throw new IllegalStateException("portrait.project must be set in local.properties for non-LME points");
-            }
-            for (Map.Entry<String, String> e : ownerByProject.entrySet()) {
-                Map<UUID, List<Long>> evidence = new LinkedHashMap<>();
-                for (FactRepository.StoredFact fact : repo.findByOwnerAndProject(e.getValue(), e.getKey())) {
-                    evidence.put(fact.id(), fact.evidenceMessageIds());
+            long runId = runs.start(experiment, "wcheck", "W-проверка: слепки PG → wchecks PG");
+            try {
+                FactRepository repo = new FactRepository(conn);
+                Map<String, String> ownerByProject = new LinkedHashMap<>();
+                for (EvalPoint p : points) {
+                    String project = portraitProject(config, p.sourceSession());
+                    String owner = portraitOwner(config, p.sourceSession());
+                    ownerByProject.merge(project, owner,
+                            (a, b) -> a.equals(b) ? a : throwMixedOwner(project, a, b));
                 }
-                evidenceByProject.put(e.getKey(), evidence);
+                if (ownerByProject.containsKey("")) {
+                    throw new IllegalStateException("portrait.project must be set in local.properties for non-LME points");
+                }
+                Map<String, Map<UUID, List<Long>>> evidenceByProject = new LinkedHashMap<>();
+                for (Map.Entry<String, String> e : ownerByProject.entrySet()) {
+                    Map<UUID, List<Long>> evidence = new LinkedHashMap<>();
+                    for (FactRepository.StoredFact fact : repo.findByOwnerAndProject(e.getValue(), e.getKey())) {
+                        evidence.put(fact.id(), fact.evidenceMessageIds());
+                    }
+                    evidenceByProject.put(e.getKey(), evidence);
+                }
+
+                for (EvalPoint point : points) {
+                    if (!only.isEmpty() && !point.id().equals(only)) {
+                        continue;
+                    }
+                    if (!"L1".equals(point.level())) {
+                        continue;
+                    }
+                    String mJson = snapshots.find(experiment, point.id(), "m").orElse(null);
+                    String w0Json = snapshots.find(experiment, point.id(), "w0").orElse(null);
+                    if (mJson == null || w0Json == null) {
+                        insufficient++;
+                        recordInsufficient(results, experiment, point.id(), mapper, "insufficient-grid");
+                        continue;
+                    }
+                    List<RawMessage> log = readLog(config, point.sourceSession());
+                    int idxM = indexOfMessage(log, point.sourceMessageId());
+                    long w0 = idxM >= 0 ? windowStartId(log, idxM, config.windowSize()) : -1;
+                    if (w0 < 0) {
+                        insufficient++;
+                        recordInsufficient(results, experiment, point.id(), mapper, "insufficient-grid");
+                        continue;
+                    }
+                    Map<UUID, List<Long>> evidence =
+                            evidenceByProject.get(portraitProject(config, point.sourceSession()));
+                    WCheck.PointReport report = WCheck.check(point.id(), point.must(),
+                            mJson, w0, point.sourceMessageId(),
+                            factId -> evidence == null ? List.of() : evidence.getOrDefault(factId, List.of()));
+                    com.fasterxml.jackson.databind.node.ObjectNode node = mapper.valueToTree(report);
+                    node.put("status", report.covered() ? "covered" : "not-covered");
+                    String payload = mapper.writeValueAsString(node);
+                    results.upsertWCheck(experiment, point.id(), report.covered(), report.answerCovered(), payload);
+                    checked++;
+                    if (report.answerCovered()) {
+                        answerCovered++;
+                    }
+                    System.out.printf("[WCHECK] point %s: %s (answer %s, valid %d, in-window %d, lag %d, unknown %d)%n",
+                            point.id(), report.covered() ? "covered" : "not-covered",
+                            report.answerCovered() ? "covered" : "not-covered",
+                            report.valid().size(), report.inWindow().size(), report.lag().size(),
+                            report.unknown().size());
+                }
+
+                runs.finish(runId, "done");
+            } catch (Exception e) {
+                runs.finish(runId, "failed");
+                throw e;
             }
         }
 
-        StringBuilder out = new StringBuilder();
-        int checked = 0;
-        int answerCovered = 0;
-        int insufficient = 0;
-        for (EvalPoint point : points) {
-            if (!only.isEmpty() && !point.id().equals(only)) {
-                continue;
-            }
-            if (!"L1".equals(point.level())) {
-                continue;
-            }
-            Path w0File = snapshotsDir.resolve(point.id() + ".w0.json");
-            Path mFile = snapshotsDir.resolve(point.id() + ".json");
-            if (!Files.exists(w0File) || !Files.exists(mFile)) {
-                insufficient++;
-                out.append(mapper.writeValueAsString(Map.of("pointId", point.id(), "status", "insufficient-grid")))
-                        .append('\n');
-                continue;
-            }
-            List<RawMessage> log = readLog(config, point.sourceSession());
-            int idxM = indexOfMessage(log, point.sourceMessageId());
-            long w0 = idxM >= 0 ? windowStartId(log, idxM, config.windowSize()) : -1;
-            if (w0 < 0) {
-                insufficient++;
-                out.append(mapper.writeValueAsString(Map.of("pointId", point.id(), "status", "insufficient-grid")))
-                        .append('\n');
-                continue;
-            }
-            Map<UUID, List<Long>> evidence =
-                    evidenceByProject.get(portraitProject(config, point.sourceSession()));
-            WCheck.PointReport report = WCheck.check(point.id(), point.must(),
-                    Files.readString(mFile), w0, point.sourceMessageId(),
-                    factId -> evidence == null ? List.of() : evidence.getOrDefault(factId, List.of()));
-            com.fasterxml.jackson.databind.node.ObjectNode node = mapper.valueToTree(report);
-            node.put("status", report.covered() ? "covered" : "not-covered");
-            out.append(mapper.writeValueAsString(node)).append('\n');
-            checked++;
-            if (report.answerCovered()) {
-                answerCovered++;
-            }
-            System.out.printf("[WCHECK] point %s: %s (answer %s, valid %d, in-window %d, lag %d, unknown %d)%n",
-                    point.id(), report.covered() ? "covered" : "not-covered",
-                    report.answerCovered() ? "covered" : "not-covered",
-                    report.valid().size(), report.inWindow().size(), report.lag().size(),
-                    report.unknown().size());
-        }
+        System.out.printf("[WCHECK] done: %d checked, %d answer-covered, %d insufficient-grid%n",
+                checked, answerCovered, insufficient);
+    }
 
-        Files.createDirectories(outFile.getParent());
-        Files.writeString(outFile, out.toString());
-        System.out.printf("[WCHECK] done: %d checked, %d answer-covered, %d insufficient-grid -> %s%n",
-                checked, answerCovered, insufficient, outFile.normalize());
+    private static void recordInsufficient(ResultStore results, String experiment, String pointId,
+                                           com.fasterxml.jackson.databind.ObjectMapper mapper,
+                                           String status) throws Exception {
+        String payload = mapper.writeValueAsString(Map.of("pointId", pointId, "status", status));
+        results.upsertWCheck(experiment, pointId, null, null, payload);
     }
 
     /**
@@ -404,20 +450,63 @@ public final class EvalRunner {
     }
 
     /** Машинные проверки ответов: must/must_not (границы слов, без судей — ярус smoke); C-точки — булев leak-гейт. */
-    private static void runOracles(EvalConfig config) throws Exception {
-        Oracles.run(config);
+    private static void runOracles(EvalConfig config, String[] args) throws Exception {
+        Oracles.run(config, args.length > 1 && !args[1].isBlank() ? args[1] : null);
     }
 
-    /** Lift на решённых парах + McNemar exact (α = 0.05), конструируемость; вердикты асимметричны (§4). */
-    private static void runReport(EvalConfig config) throws Exception {
-        Report.run(config);
+    /**
+     * История прогонов эксперимента (§7.3/§7.4): `runs [slug]` — экономика каждого
+     * прогона (llm_calls/токены) и статусы; def — единственный active.
+     */
+    private static void runRuns(EvalConfig config, String[] args) throws Exception {
+        try (Connection conn = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            SchemaMigrator.migrate(conn);
+            String experiment = Experiments.resolveActive(new ExperimentStore(conn),
+                    args.length > 1 && !args[1].isBlank() ? args[1] : null);
+            System.out.printf("[RUNS] experiment %s:%n", experiment);
+            System.out.printf("  %-4s %-9s %-11s %-9s %-14s %-11s%n",
+                    "#", "stage", "status", "llm", "tokens p/c", "finished");
+            for (RunStore.RunRow run : new RunStore(conn).list(experiment)) {
+                String llm = run.llmCalls() == null ? "—" : String.valueOf(run.llmCalls());
+                String tokens = run.promptTokens() == null || run.completionTokens() == null
+                        ? "—" : run.promptTokens() + "/" + run.completionTokens();
+                String finished = run.finishedAt() == null ? "—" : run.finishedAt().toLocalDate().toString();
+                System.out.printf("  %-4d %-9s %-11s %-9s %-14s %-11s %s%n",
+                        run.id(), run.stage(), run.status(), llm, tokens, finished,
+                        run.note() == null ? "" : run.note());
+            }
+        }
+    }
+
+    /** Удаление прогона (§7.3 — штатная операция): `delrun <id>` — run + неперезаписанные артефакты каскадом. */
+    private static void runDelRun(EvalConfig config, String[] args) throws Exception {
+        if (args.length < 2 || args[1].isBlank()) {
+            throw new IllegalArgumentException("usage: delrun <runId>");
+        }
+        long runId = Long.parseLong(args[1]);
+        try (Connection conn = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            SchemaMigrator.migrate(conn);
+            RunStore.RunDeletion deleted = new RunStore(conn).delete(runId);
+            System.out.printf("[DELRUN] run #%d (%s/%s, %s) удалён: answers %d, snapshots %d "
+                            + "(перезаписанные позже — выжили, run_id чужой)%n",
+                    deleted.id(), deleted.experiment(), deleted.stage(), deleted.status(),
+                    deleted.deletedAnswers(), deleted.deletedSnapshots());
+        }
+    }
+
+    /** Lift на решённых парах + McNemar exact (α = 0.05), конструируемость; вердикты асимметричны (§4).
+     *  Аргумент — слаг эксперимента (не задан → единственный active); вердикты читает из PG (§7). */
+    private static void runReport(EvalConfig config, String[] args) throws Exception {
+        Report.run(config, args.length > 1 && !args[1].isBlank() ? args[1] : null);
     }
 
     private static void runAll(EvalConfig config) throws Exception {
-        runReplay(config);
+        runReplay(config, new String[]{"replay"});
         Arms.run(config, 0);
-        Oracles.run(config);
-        Report.run(config);
+        Oracles.run(config, null);
+        Report.run(config, null);
     }
 
     private static Map<String, List<EvalPoint>> groupBySession(List<EvalPoint> points) {

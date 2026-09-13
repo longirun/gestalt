@@ -1,9 +1,15 @@
 package ru.longirun.gestalt.eval;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ru.longirun.gestalt.eval.store.ExperimentStore;
+import ru.longirun.gestalt.eval.store.ResultStore;
+import ru.longirun.gestalt.eval.store.RunStore;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -75,17 +81,40 @@ public final class Report {
         return Math.min(1.0, 2 * tail / Math.pow(2, n));
     }
 
-    /** Читает out/oracles.jsonl, пишет out/report.md и сводку в консоль. */
-    public static void run(EvalConfig config) throws Exception {
-        Path oraclesFile = EvalPaths.evalDir().resolve("out/oracles.jsonl");
-        if (!Files.exists(oraclesFile)) {
-            throw new IllegalStateException("нет " + oraclesFile + " — сначала прогони oracles");
-        }
-        List<Oracles.PointVerdict> verdicts = new ArrayList<>();
-        for (String line : Files.readAllLines(oraclesFile)) {
-            if (!line.isBlank()) {
-                verdicts.add(MAPPER.readValue(line, Oracles.PointVerdict.class));
+    /**
+     * Читает вердикты эксперимента из gestalt_eval (§7 — PG источник истины), пишет
+     * out/report.md (генерируемый артефакт, §7.5) и сводку в консоль. Прогон регистрируется
+     * в runs (writer-проход: история отчётов). Слаг не задан → единственный активный
+     * эксперимент; иначе ошибка со списком.
+     */
+    public static void run(EvalConfig config, String experimentSlug) throws Exception {
+        List<Oracles.PointVerdict> verdicts;
+        String experiment;
+        try (Connection conn = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            ExperimentStore experiments = new ExperimentStore(conn);
+            experiment = Experiments.resolveActive(experiments, experimentSlug);
+            RunStore runs = new RunStore(conn);
+            ResultStore results = new ResultStore(conn);
+            int stale = runs.interruptStale(experiment, "report");
+            if (stale > 0) {
+                System.out.printf("[REPORT] %d застрявших running-прогонов report помечены interrupted (§7.3)%n", stale);
             }
+            long runId = runs.start(experiment, "report", "сводный отчёт из вердиктов PG");
+            try {
+                verdicts = new ArrayList<>();
+                for (ResultStore.VerdictRow row : results.verdicts(experiment)) {
+                    verdicts.add(MAPPER.readValue(row.payloadJson(), Oracles.PointVerdict.class));
+                }
+                runs.finish(runId, "done");
+            } catch (Exception e) {
+                runs.finish(runId, "failed");
+                throw e;
+            }
+        }
+        if (verdicts.isEmpty()) {
+            throw new IllegalStateException("эксперимент '%s': нет вердиктов в gestalt_eval — прогони oracles или migrate"
+                    .formatted(experiment));
         }
 
         Stats s = stats(verdicts);
@@ -96,6 +125,7 @@ public final class Report {
 
         StringBuilder md = new StringBuilder();
         md.append("# Gestalt eval — E5 report\n\n");
+        md.append(String.format("Эксперимент: `%s` (вердикты из gestalt_eval, §7).%n", experiment));
         md.append(String.format("Машинный оракул (нижняя граница; парафразы/морфология — ярус судьи).%n%n"));
         md.append("| метрика | значение |\n|---|---|\n");
         md.append(String.format("| точек (без leak-veto) | %d |%n", s.n()));

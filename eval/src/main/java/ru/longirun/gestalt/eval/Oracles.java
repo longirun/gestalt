@@ -1,12 +1,18 @@
 package ru.longirun.gestalt.eval;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import ru.longirun.gestalt.eval.store.ExperimentStore;
+import ru.longirun.gestalt.eval.store.ResultStore;
+import ru.longirun.gestalt.eval.store.RunStore;
+import ru.longirun.gestalt.eval.store.SchemaMigrator;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -16,7 +22,7 @@ import java.util.regex.Pattern;
  * регистронезависимое вхождение с границами слов: «18» совпадает с «18 minutes»,
  * но не с «18th» (урок E2-PC: строгая подстрока давала ложные позитивы на числах).
  * C-точки: появление mustNot-маркера в ответе плеча A = leak (veto Р36, в lift не входит).
- * Контракт вывода — viewer (/api/oracles): out/oracles.jsonl.
+ * Контракт вывода — verdicts (PG); viewer читает /api/oracles.
  */
 public final class Oracles {
 
@@ -70,56 +76,67 @@ public final class Oracles {
     }
 
     /**
-     * Прогон оракулов по точкам с материализованными ответами плеч (out/answers);
-     * точки без пары ответов пропускаются (плечи не прогонялись). Отчёт перезаписывается
-     * в out/oracles.jsonl (viewer и E5 читают его).
+     * Прогон оракулов по точкам с материализованными ответами плеч (gestalt_eval.answers,
+     * §7 writer): точки без пары ответов пропускаются (плечи не прогонялись). Вердикты
+     * пишутся в verdicts (PG — источник истины; viewer и E5 читают PG).
+     * Прогон оборачивается в run (история попыток).
      */
-    public static void run(EvalConfig config) throws Exception {
+    public static void run(EvalConfig config, String experimentSlug) throws Exception {
         List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(config.datasetFile()));
-        Path answersDir = EvalPaths.evalDir().resolve("out/answers");
-        Path outFile = EvalPaths.evalDir().resolve("out/oracles.jsonl");
 
-        StringBuilder out = new StringBuilder();
         int checked = 0;
         int skipped = 0;
-        for (EvalPoint point : points) {
-            Path aFile = answersDir.resolve(point.id() + ".a.json");
-            Path bFile = answersDir.resolve(point.id() + ".b.json");
-            if (!Files.exists(aFile) || !Files.exists(bFile)) {
-                skipped++;
-                continue;
+        try (Connection conn = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            SchemaMigrator.migrate(conn);
+            ExperimentStore experiments = new ExperimentStore(conn);
+            String experiment = Experiments.resolveActive(experiments, experimentSlug);
+            RunStore runs = new RunStore(conn);
+            ResultStore results = new ResultStore(conn);
+
+            int stale = runs.interruptStale(experiment, "oracles");
+            if (stale > 0) {
+                System.out.printf("[ORACLE] %d застрявших running-прогонов oracles помечены interrupted (§7.3)%n", stale);
             }
-            String answerA = MAPPER.readTree(Files.readString(aFile)).path("answer").asText("");
-            String answerB = MAPPER.readTree(Files.readString(bFile)).path("answer").asText("");
+            long runId = runs.start(experiment, "oracles", "машинные оракулы: ответы PG → вердикты PG");
+            try {
+                Map<String, ResultStore.AnswerRow> byArm = new HashMap<>();
+                for (ResultStore.AnswerRow row : results.answers(experiment)) {
+                    byArm.put(row.pointId() + "|" + row.arm(), row);
+                }
 
-            ArmVerdict a = verdict(answerA, point.must(), point.mustNot());
-            ArmVerdict b = verdict(answerB, point.must(), point.mustNot());
-            boolean leak = "C".equals(point.level()) && !a.matchedMustNot().isEmpty();
-            PointVerdict verdict = new PointVerdict(point.id(), point.level(), a, b,
-                    leak, a.matchedMustNot());
+                for (EvalPoint point : points) {
+                    ResultStore.AnswerRow a = byArm.get(point.id() + "|a");
+                    ResultStore.AnswerRow b = byArm.get(point.id() + "|b");
+                    if (a == null || b == null) {
+                        skipped++;
+                        continue;
+                    }
 
-            out.append(MAPPER.writeValueAsString(verdict)).append('\n');
-            checked++;
-            String solved = (a.pass() != b.pass()) ? "решённая пара (" + (a.pass() ? "A" : "B") + ")" : "не решённая";
-            System.out.printf("[ORACLE] point %s: A %s (missed %d) / B %s (missed %d) — %s%s%n",
-                    point.id(), a.pass() ? "pass" : "fail", a.missedMust().size(),
-                    b.pass() ? "pass" : "fail", b.missedMust().size(), solved,
-                    leak ? " · C-LEAK (veto)" : "");
+                    ArmVerdict av = verdict(a.answer(), point.must(), point.mustNot());
+                    ArmVerdict bv = verdict(b.answer(), point.must(), point.mustNot());
+                    boolean leak = "C".equals(point.level()) && !av.matchedMustNot().isEmpty();
+                    PointVerdict verdict = new PointVerdict(point.id(), point.level(), av, bv,
+                            leak, av.matchedMustNot());
+
+                    results.upsertVerdict(experiment, point.id(), av.pass(), bv.pass(), leak,
+                            MAPPER.writeValueAsString(verdict));
+                    checked++;
+                    String solved = (av.pass() != bv.pass()) ? "решённая пара (" + (av.pass() ? "A" : "B") + ")" : "не решённая";
+                    System.out.printf("[ORACLE] point %s: A %s (missed %d) / B %s (missed %d) — %s%s%n",
+                            point.id(), av.pass() ? "pass" : "fail", av.missedMust().size(),
+                            bv.pass() ? "pass" : "fail", bv.missedMust().size(), solved,
+                            leak ? " · C-LEAK (veto)" : "");
+                }
+
+                runs.finish(runId, "done");
+            } catch (Exception e) {
+                runs.finish(runId, "failed");
+                throw e;
+            }
         }
 
-        Files.createDirectories(outFile.getParent());
-        Files.writeString(outFile, out.toString());
-        System.out.printf("[ORACLE] done: %d checked, %d skipped (no answers) -> %s%n",
-                checked, skipped, outFile.normalize());
-    }
-
-    /** Для E5: ответ из файла out/answers/<pointId>.<arm>.json (null, если файла нет). */
-    static String readAnswer(Path answersDir, String pointId, String arm) throws Exception {
-        Path file = answersDir.resolve(pointId + "." + arm + ".json");
-        if (!Files.exists(file)) {
-            return null;
-        }
-        JsonNode node = MAPPER.readTree(Files.readString(file));
-        return node.path("answer").asText("");
+        System.out.printf("[ORACLE] done: %d checked, %d skipped (no answers)%n",
+                checked, skipped);
     }
 }

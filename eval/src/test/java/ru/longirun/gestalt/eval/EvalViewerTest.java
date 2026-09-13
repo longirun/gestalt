@@ -31,16 +31,19 @@ import java.util.concurrent.CountDownLatch;
 import java.util.regex.Pattern;
 import ru.longirun.gestalt.eval.ingest.LongMemEvalAdapter;
 import ru.longirun.gestalt.eval.ingest.RawMessage;
+import ru.longirun.gestalt.eval.store.ExperimentStore;
+import ru.longirun.gestalt.eval.store.PointSnapshotStore;
+import ru.longirun.gestalt.eval.store.ResultStore;
 
 /**
  * Рабочий стол разметчика E2 (план 31 §2.7): поднимает HttpServer со статикой и API,
  * разметчик работает в браузере. Стоп теста в IDE = стоп сервера. Тег "viewer" исключён
  * из дефолтного gradlew test — запускать только явно из IDE.
- * Все GET читают файлы с диска на каждый запрос: правки jsonl/новые слепки подхватываются F5.
- * День (/api/day): LME-точки получают лог из LongMemEval-файла (нумерация реплик та же, что у
- * replay/wcheck), live-точки — из data/candidates.jsonl; формат строк одинаков.
- * Экран — точка-центричный (план 31 §2.7): досье точки (таймлайн, why, coverage, истина, A/B);
- * данные плеч E3/E4 — GET /api/answers, /api/oracles, читаются из out/ и рендерятся по мере появления.
+ * Входы (файлы, вне VCS): точки датасета, журнал разметки; слепки — файловый кэш out/snapshots.
+ * Результаты прибора (§7): answers/verdicts/wchecks — из gestalt_eval, эксперимент выбирается
+ * ?exp=<slug> (по умолчанию единственный active). День (/api/day): LME-точки получают лог из
+ * LongMemEval-файла, live-точки — из data/candidates.jsonl; формат строк одинаков.
+ * Экран — точка-центричный (план 31 §2.7): досье точки (таймлайн, why, coverage, истина, A/B).
  */
 @Tag("viewer")
 class EvalViewerTest {
@@ -85,30 +88,35 @@ class EvalViewerTest {
                        Path pointsFile, Path journalFile, EvalConfig config, DbCreds prodDb) throws Exception {
         String path = ex.getRequestURI().getPath();
         String method = ex.getRequestMethod();
+        String exp = queryParam(ex, "exp");
+        Path activePointsFile = resolvePointsFile(config, pointsFile, exp);
+        Path activeJournalFile = resolveJournalFile(dataDir, journalFile, config, exp);
         if ("GET".equals(method) && "/".equals(path)) {
             serveIndex(ex);
         } else if ("GET".equals(method) && "/api/day".equals(path)) {
-            sendDay(ex, dataDir, pointsFile, config);
+            sendDay(ex, dataDir, activePointsFile, config, exp);
         } else if ("GET".equals(method) && "/api/prod-facts".equals(path)) {
-            sendProdFacts(ex, dataDir, pointsFile, config, prodDb);
+            sendProdFacts(ex, dataDir, activePointsFile, config, prodDb, exp);
         } else if ("GET".equals(method) && "/api/points".equals(path)) {
-            sendFileAsJsonl(ex, pointsFile);
+            sendFileAsJsonl(ex, activePointsFile);
         } else if ("GET".equals(method) && "/api/journal".equals(path)) {
-            sendFileAsJsonl(ex, journalFile);
+            sendFileAsJsonl(ex, activeJournalFile);
+        } else if ("GET".equals(method) && "/api/experiments".equals(path)) {
+            sendExperiments(ex, config, exp);
         } else if ("GET".equals(method) && "/api/wcheck".equals(path)) {
-            sendFileAsJsonl(ex, dataDir.getParent().resolve("out/wcheck.jsonl"));
+            sendLifecycleJsonl(ex, config, exp, "wchecks");
         } else if ("GET".equals(method) && "/api/answers".equals(path)) {
-            sendAnswers(ex, dataDir.getParent().resolve("out/answers"));
+            sendAnswers(ex, config, exp);
         } else if ("GET".equals(method) && "/api/oracles".equals(path)) {
-            sendFileAsJsonl(ex, dataDir.getParent().resolve("out/oracles.jsonl"));
+            sendLifecycleJsonl(ex, config, exp, "verdicts");
         } else if ("GET".equals(method) && "/api/snapshots".equals(path)) {
-            sendSnapshotList(ex, snapshotsDir);
+            sendSnapshotList(ex, snapshotsDir, config, exp);
         } else if ("GET".equals(method) && path.startsWith("/api/snapshot/")) {
-            sendSnapshot(ex, snapshotsDir, path.substring("/api/snapshot/".length()));
+            sendSnapshot(ex, snapshotsDir, path.substring("/api/snapshot/".length()), config, exp);
         } else if ("POST".equals(method) && "/api/point".equals(path)) {
-            appendPoint(ex, pointsFile);
+            appendPoint(ex, activePointsFile);
         } else if ("POST".equals(method) && "/api/journal".equals(path)) {
-            appendJournal(ex, journalFile);
+            appendJournal(ex, activeJournalFile);
         } else {
             respond(ex, 404, "{\"error\":\"not found\"}");
         }
@@ -159,7 +167,7 @@ class EvalViewerTest {
 
     /** День viewer'а: LME-точки — лог из LongMemEval-файла одним проходом (идентичная нумерация
      *  replay/wcheck — контракт LongMemEvalAdapter.buildLog), live-точки — data/candidates.jsonl. */
-    private void sendDay(HttpExchange ex, Path dataDir, Path pointsFile, EvalConfig config) throws IOException {
+    private void sendDay(HttpExchange ex, Path dataDir, Path pointsFile, EvalConfig config, String requestedExp) throws IOException {
         DatasetKinds kinds = datasetKinds(pointsFile, config);
         List<String> lines = new ArrayList<>();
         if (!kinds.lmeSessions().isEmpty()) {
@@ -177,7 +185,17 @@ class EvalViewerTest {
             });
         }
         if (kinds.hasLive()) {
-            Path candidates = dataDir.resolve("candidates.jsonl");
+            String experiment = resolveExperimentOrNull(config, requestedExp);
+            Path candidates = null;
+            if (experiment != null) {
+                Path archiveCandidates = dataDir.resolve("archive/candidates." + experiment + ".jsonl");
+                if (Files.exists(archiveCandidates)) {
+                    candidates = archiveCandidates;
+                }
+            }
+            if (candidates == null) {
+                candidates = dataDir.resolve("candidates.jsonl");
+            }
             if (Files.exists(candidates)) {
                 lines.addAll(Files.readAllLines(candidates));
             }
@@ -200,7 +218,22 @@ class EvalViewerTest {
         }
     }
 
-    private void sendSnapshotList(HttpExchange ex, Path snapshotsDir) throws IOException {
+    private void sendSnapshotList(HttpExchange ex, Path snapshotsDir, EvalConfig config, String requested)
+            throws IOException {
+        String experiment = resolveExperimentOrNull(config, requested);
+        if (experiment != null) {
+            try (Connection c = DriverManager.getConnection(
+                    config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+                List<String> ids = new PointSnapshotStore(c).list(experiment).stream()
+                        .map(ref -> ref.pointId() + ("w0".equals(ref.kind()) ? ".w0" : ""))
+                        .toList();
+                if (!ids.isEmpty()) {
+                    respond(ex, 200, MAPPER.writeValueAsString(ids));
+                    return;
+                }
+            } catch (Exception ignore) {
+            }
+        }
         List<String> ids = new ArrayList<>();
         if (Files.isDirectory(snapshotsDir)) {
             try (var stream = Files.list(snapshotsDir)) {
@@ -211,10 +244,25 @@ class EvalViewerTest {
         respond(ex, 200, MAPPER.writeValueAsString(ids));
     }
 
-    private void sendSnapshot(HttpExchange ex, Path snapshotsDir, String id) throws IOException {
+    private void sendSnapshot(HttpExchange ex, Path snapshotsDir, String id, EvalConfig config, String requested)
+            throws IOException {
         if (!SAFE_ID.matcher(id).matches()) {
             respond(ex, 400, "{\"error\":\"bad id\"}");
             return;
+        }
+        String experiment = resolveExperimentOrNull(config, requested);
+        if (experiment != null) {
+            try (Connection c = DriverManager.getConnection(
+                    config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+                String kind = id.endsWith(".w0") ? "w0" : "m";
+                String pointId = id.endsWith(".w0") ? id.substring(0, id.length() - 3) : id;
+                var snap = new PointSnapshotStore(c).find(experiment, pointId, kind);
+                if (snap.isPresent()) {
+                    respond(ex, 200, snap.get());
+                    return;
+                }
+            } catch (Exception ignore) {
+            }
         }
         Path file = snapshotsDir.resolve(id + ".json");
         if (!Files.exists(file)) {
@@ -224,35 +272,115 @@ class EvalViewerTest {
         respond(ex, 200, Files.readString(file));
     }
 
-    /** Ответы плеч (стадия E3): out/answers/<pointId>.{a,b}.json → агрегат {pointId: {a:…, b:…}}.
-     *  Битый файл одного плеча не роняет весь список — A/B ещё не прогонялись или пишутся частями. */
-    private void sendAnswers(HttpExchange ex, Path answersDir) throws IOException {
+    /** Реестр экспериментов (§7): список + диагностика выбора (?exp= или единственный active). */
+    private void sendExperiments(HttpExchange ex, EvalConfig config, String requested) throws IOException {
         com.fasterxml.jackson.databind.node.ObjectNode root = MAPPER.createObjectNode();
-        if (Files.isDirectory(answersDir)) {
-            try (var stream = Files.list(answersDir)) {
-                for (Path f : stream.filter(p -> {
-                            String n = p.getFileName().toString();
-                            return n.endsWith(".a.json") || n.endsWith(".b.json");
-                        }).sorted().toList()) {
-                    String name = f.getFileName().toString().replaceFirst("\\.json$", "");
-                    String pointId = name.substring(0, name.length() - 2);
-                    String arm = name.substring(name.length() - 1);
-                    try {
-                        root.withObject(pointId).set(arm, MAPPER.readTree(Files.readString(f)));
-                    } catch (Exception ignore) {
-                        // повреждённый json ответа — пропускаем плечо, остальное показываем
-                    }
-                }
+        try (Connection c = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            ExperimentStore store = new ExperimentStore(c);
+            com.fasterxml.jackson.databind.node.ArrayNode experiments = root.putArray("experiments");
+            for (ExperimentStore.Experiment e : store.list()) {
+                com.fasterxml.jackson.databind.node.ObjectNode node = experiments.addObject();
+                node.put("slug", e.slug());
+                node.put("material", e.material());
+                node.put("status", e.status());
+                node.put("datasetRef", e.datasetRef());
+                node.put("note", e.note());
+                node.put("active", e.status().equals("active"));
+            }
+            try {
+                root.put("selected", Experiments.resolveActive(store, requested));
+            } catch (Exception e) {
+                root.put("error", e.getMessage());
+            }
+            respond(ex, 200, MAPPER.writeValueAsString(root));
+        } catch (Exception e) {
+            root.put("error", "gestalt_eval: " + e.getMessage());
+            respond(ex, 200, MAPPER.writeValueAsString(root));
+        }
+    }
+
+    /** Эксперимент выборки: ?exp=<slug>, иначе единственный active; неразрешим → null (пустые данные,
+     *  диагностика — /api/experiments). Р3: PG — источник истины результатов прибора. */
+    private String resolveExperimentOrNull(EvalConfig config, String requested) {
+        try (Connection c = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            return Experiments.resolveActive(new ExperimentStore(c), requested);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** ?exp=<slug> из query string (null, если нет). */
+    private static String queryParam(HttpExchange ex, String name) {
+        String query = ex.getRequestURI().getRawQuery();
+        if (query == null) {
+            return null;
+        }
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            String key = eq < 0 ? pair : pair.substring(0, eq);
+            if (name.equals(key)) {
+                return eq < 0 ? "" : java.net.URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8);
             }
         }
-        respond(ex, 200, MAPPER.writeValueAsString(root));
+        return null;
+    }
+
+    /** verdicts|wchecks эксперимента → jsonl (контракт прежних файлов, фронт не меняется). */
+    private void sendLifecycleJsonl(HttpExchange ex, EvalConfig config, String requested, String table)
+            throws IOException {
+        String experiment = resolveExperimentOrNull(config, requested);
+        if (experiment == null) {
+            respond(ex, 200, "");
+            return;
+        }
+        try (Connection c = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            ResultStore results = new ResultStore(c);
+            List<String> payloads = table.equals("verdicts")
+                    ? results.verdicts(experiment).stream().map(ResultStore.VerdictRow::payloadJson).toList()
+                    : results.wchecks(experiment).stream().map(ResultStore.WCheckRow::payloadJson).toList();
+            respond(ex, 200, String.join("\n", payloads));
+        } catch (Exception e) {
+            respond(ex, 200, "{\"error\":\"" + escape(e.getMessage()) + "\"}");
+        }
+    }
+
+    /** Ответы плеч (E3) из gestalt_eval (§7): агрегат {pointId: {a:…, b:…}}, формат полей — как в answers. */
+    private void sendAnswers(HttpExchange ex, EvalConfig config, String requested) throws IOException {
+        com.fasterxml.jackson.databind.node.ObjectNode root = MAPPER.createObjectNode();
+        String experiment = resolveExperimentOrNull(config, requested);
+        if (experiment == null) {
+            respond(ex, 200, MAPPER.writeValueAsString(root));
+            return;
+        }
+        try (Connection c = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            for (ResultStore.AnswerRow row : new ResultStore(c).answers(experiment)) {
+                com.fasterxml.jackson.databind.node.ObjectNode node = MAPPER.createObjectNode();
+                node.put("answer", row.answer());
+                node.put("model", row.model());
+                node.put("tokens", row.tokens());
+                node.put("promptTokens", row.promptTokens());
+                node.put("completionTokens", row.completionTokens());
+                node.put("latencyMs", row.latencyMs());
+                node.put("cached", row.cached());
+                node.put("at", row.at() == null ? null : row.at().toString());
+                root.withObject(row.pointId()).set(row.arm(), node);
+            }
+            respond(ex, 200, MAPPER.writeValueAsString(root));
+        } catch (Exception e) {
+            root.put("error", "gestalt_eval: " + e.getMessage());
+            respond(ex, 200, MAPPER.writeValueAsString(root));
+        }
     }
 
     /** Выводы, уже лежащие в production-базе фактов: viewer показывает их с evidence — из каких
      *  реплик среза выведен каждый факт (план 31 §2.7, read-only). Для чистого LME-датасета
      *  секция не релевантна: микромиры LongMemEval в production не инжестятся. */
     private void sendProdFacts(HttpExchange ex, Path dataDir, Path pointsFile, EvalConfig config,
-                               DbCreds prodDb) throws IOException {
+                               DbCreds prodDb, String requestedExp) throws IOException {
         if (prodDb.url().isBlank()) {
             respond(ex, 200, "{\"facts\":[],\"error\":\"prod.db.* not configured (eval/local.properties)\"}");
             return;
@@ -264,7 +392,17 @@ class EvalViewerTest {
             return;
         }
         List<Long> ids = new ArrayList<>();
-        Path dayFile = dataDir.resolve("candidates.jsonl");
+        String experiment = resolveExperimentOrNull(config, requestedExp);
+        Path dayFile = null;
+        if (experiment != null) {
+            Path archiveCandidates = dataDir.resolve("archive/candidates." + experiment + ".jsonl");
+            if (Files.exists(archiveCandidates)) {
+                dayFile = archiveCandidates;
+            }
+        }
+        if (dayFile == null) {
+            dayFile = dataDir.resolve("candidates.jsonl");
+        }
         if (Files.exists(dayFile)) {
             for (String line : Files.readAllLines(dayFile)) {
                 if (!line.isBlank()) {
@@ -474,6 +612,35 @@ class EvalViewerTest {
         try (OutputStream out = ex.getResponseBody()) {
             out.write(bytes);
         }
+    }
+
+    private Path resolvePointsFile(EvalConfig config, Path defaultPointsFile, String requestedExp) {
+        String experiment = resolveExperimentOrNull(config, requestedExp);
+        if (experiment != null) {
+            try (Connection c = DriverManager.getConnection(
+                    config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+                var exp = new ExperimentStore(c).find(experiment);
+                if (exp.isPresent() && exp.get().datasetRef() != null && !exp.get().datasetRef().isBlank()) {
+                    Path resolved = EvalPaths.resolve(exp.get().datasetRef());
+                    if (Files.exists(resolved)) {
+                        return resolved;
+                    }
+                }
+            } catch (Exception ignore) {
+            }
+        }
+        return defaultPointsFile;
+    }
+
+    private Path resolveJournalFile(Path dataDir, Path defaultJournalFile, EvalConfig config, String requestedExp) {
+        String experiment = resolveExperimentOrNull(config, requestedExp);
+        if (experiment != null) {
+            Path archiveJournal = dataDir.resolve("archive/marking-journal." + experiment + ".jsonl");
+            if (Files.exists(archiveJournal)) {
+                return archiveJournal;
+            }
+        }
+        return defaultJournalFile;
     }
 
     private String escape(String s) {

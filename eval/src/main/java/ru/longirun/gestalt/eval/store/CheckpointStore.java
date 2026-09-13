@@ -41,4 +41,15 @@ public final class CheckpointStore {
             ps.executeUpdate();
         }
     }
+
+    /** Сброс курсора сессии (§7.2: смена ingest_fp = re-replay с нуля). Возвращает прошлое значение. */
+    public long reset(String sessionId) throws SQLException {
+        long previous = lastProcessedMessageId(sessionId);
+        try (PreparedStatement ps = connection.prepareStatement(
+                "DELETE FROM replay_checkpoints WHERE session_id = ?")) {
+            ps.setString(1, sessionId);
+            ps.executeUpdate();
+        }
+        return previous;
+    }
 }
