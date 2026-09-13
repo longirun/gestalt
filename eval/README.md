@@ -17,7 +17,14 @@ cp eval/local.properties.example eval/local.properties   # заполнить к
 при достижении T каждой точки датасета — пересборка слепка и материализация в `out/snapshots/<pointId>.json`.
 Инвариант: в `gestalt_eval` попадают только факты из реплик ≤ T текущей точки; повторный прогон
 продолжает с чекпоинта (`replay_checkpoints`). Для отладки без живого лога — `source.fixture`
-(путь к jsonl) + `dataset.file` на маленьком датасете. Шаги `arms/oracles/report` — стадии E3–E5, заглушки.
+(путь к jsonl) + `dataset.file` на маленьком датасете. `arms [limit]` (E3): плечи A/B на триггерах —
+A с дайджестом слепка в системном промпте, B контроль; `temperature=0`, отвечающая модель
+`llm.answer.*` (fallback `llm.*`), ответы в `out/answers/<pointId>.{a,b}.json` (существующие не
+перегенерируются). `oracles` (E4): детерминированные must/mustNot-проверки ответов (вхождение
+с границами слов, без судей — ярус smoke) → `out/oracles.jsonl`; C-точки — leak-гейт.
+`report` (E5): сводка → `out/report.md`: pass A/B, lift, точный МакНемар на рассогласованных
+парах (α=0.05), leak-veto исключаются из n, both-fail — список для судьи/ручного разбора.
+`all` — весь конвейер подряд (replay → arms → oracles → report).
 
 ## Positive control: LongMemEval (E2-PC, план 31)
 

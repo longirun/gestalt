@@ -44,7 +44,7 @@ public final class EvalRunner {
             case "candidates" -> runCandidates(config, args);
             case "wcheck" -> runWCheck(config, args);
             case "lme" -> runLmeConvert(config, args);
-            case "arms" -> runArms(config);
+            case "arms" -> runArms(config, args);
             case "oracles" -> runOracles(config);
             case "report" -> runReport(config);
             case "all" -> runAll(config);
@@ -398,23 +398,26 @@ public final class EvalRunner {
     }
 
     /** Оба плеча на триггерах: A — с инъекцией PortraitSnapshot, B — контроль без портрета (заморозка кэша). */
-    private static void runArms(EvalConfig config) {
-        throw new UnsupportedOperationException("not implemented yet: arms");
+    private static void runArms(EvalConfig config, String[] args) throws Exception {
+        int limit = args.length > 1 && !args[1].isBlank() ? Integer.parseInt(args[1]) : 0;
+        Arms.run(config, limit);
     }
 
-    /** Машинные проверки ответов: must/must_not, edit-rate; C-точки — отдельный булев leak-гейт. */
-    private static void runOracles(EvalConfig config) {
-        throw new UnsupportedOperationException("not implemented yet: oracles");
+    /** Машинные проверки ответов: must/must_not (границы слов, без судей — ярус smoke); C-точки — булев leak-гейт. */
+    private static void runOracles(EvalConfig config) throws Exception {
+        Oracles.run(config);
     }
 
     /** Lift на решённых парах + McNemar exact (α = 0.05), конструируемость; вердикты асимметричны (§4). */
-    private static void runReport(EvalConfig config) {
-        throw new UnsupportedOperationException("not implemented yet: report");
+    private static void runReport(EvalConfig config) throws Exception {
+        Report.run(config);
     }
 
     private static void runAll(EvalConfig config) throws Exception {
         runReplay(config);
-        System.out.println("[EVAL] arms/oracles/report: not implemented yet (stages E3-E5)");
+        Arms.run(config, 0);
+        Oracles.run(config);
+        Report.run(config);
     }
 
     private static Map<String, List<EvalPoint>> groupBySession(List<EvalPoint> points) {
@@ -427,7 +430,8 @@ public final class EvalRunner {
         return bySession;
     }
 
-    private static List<RawMessage> readLog(EvalConfig config, String sourceSession) throws Exception {
+    /** Чтение лога точки (LME-микромир или live-срез) — общий для replay/wcheck/arms. */
+    static List<RawMessage> readLog(EvalConfig config, String sourceSession) throws Exception {
         if (isLme(config, sourceSession)) {
             String questionId = sourceSession.substring(LongMemEvalAdapter.SESSION_PREFIX.length());
             return new LongMemEvalAdapter(EvalPaths.resolve(config.sourceLmeFile())).messages(questionId);

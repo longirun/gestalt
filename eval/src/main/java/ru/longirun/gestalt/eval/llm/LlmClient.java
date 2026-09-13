@@ -37,6 +37,11 @@ public final class LlmClient {
         this.reasoningEffort = reasoningEffort;
     }
 
+    /** Имя модели — для метаданных ответов плеч (out/answers/*.json). */
+    public String model() {
+        return model;
+    }
+
     public record Usage(int promptTokens, int completionTokens, int totalTokens) {
         public static final Usage ZERO = new Usage(0, 0, 0);
     }

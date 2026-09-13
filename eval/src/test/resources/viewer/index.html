@@ -139,11 +139,20 @@
   .chip-term.bad { border-color: var(--err); color: var(--err); }
 
   /* A/B */
-  .arms { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .arm { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: #f8f9fb; }
-  .arm-text { white-space: pre-wrap; word-break: break-word; max-height: 280px; overflow: auto; margin: 6px 0; }
+  .arms { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+  .arm { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+  .arm.arm-pass { border-top: 3px solid var(--ok); border-color: rgba(35, 122, 70, 0.4); background: #f7fbf8; }
+  .arm.arm-fail { border-top: 3px solid var(--err); border-color: rgba(196, 56, 78, 0.4); background: #fdf8f9; }
+  .arm-text { white-space: pre-wrap; word-break: break-word; min-height: 80px; max-height: 320px; overflow: auto; margin: 8px 0; font-size: 13px; line-height: 1.5; }
   .arm .meta { color: var(--dim); font-size: 11px; }
   .ab-miss { color: var(--warn); font-size: 12px; margin-top: 4px; }
+  .hero-trigger { font-size: 13px; line-height: 1.45; margin-top: 6px; padding: 8px 10px; background: #eef3fb; border-left: 3px solid var(--accent); border-radius: 4px; }
+  .filter-chips { display: flex; gap: 4px; padding: 6px 10px; flex-wrap: wrap; background: #eef0f4; border-bottom: 1px solid var(--line); }
+  .chip { padding: 2px 8px; font-size: 11px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; color: var(--dim); font-family: inherit; }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+  .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  .chip.ok.active { background: var(--ok); border-color: var(--ok); }
+  .chip.err.active { background: var(--err); border-color: var(--err); }
 
   /* форма / журнал */
   form .field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
@@ -178,6 +187,13 @@
 <main>
   <div class="col left">
     <h2 id="leftTitle">Точки и кандидаты</h2>
+    <div class="filter-chips" id="pointFilters">
+      <button class="chip active" data-filter="all" onclick="setFilter('all')">Все</button>
+      <button class="chip ok" data-filter="winA" onclick="setFilter('winA')" title="Победа A (память помогла)">A✔ B✘</button>
+      <button class="chip err" data-filter="winB" onclick="setFilter('winB')" title="Победа B (контроль)">A✘ B✔</button>
+      <button class="chip" data-filter="tie" onclick="setFilter('tie')" title="Ничья (обе прошли или обе упали)">A=B</button>
+      <button class="chip" data-filter="covered" onclick="setFilter('covered')" title="W-покрытие есть">W ✔</button>
+    </div>
     <div class="list" id="leftList"></div>
   </div>
 
@@ -185,44 +201,48 @@
     <h2 id="dosTitle">Досье</h2>
     <div class="empty" id="noSelection">выбери точку слева · или реплику-кандидата в режиме «лог разметки»</div>
     <div class="dossier" id="workbench" style="display:none">
-      <div class="section">
+      <!-- 1. Фокус: ID точки, вопрос (триггер M) и ожидаемый ответ (truth + must) -->
+      <div class="section" id="secHero">
         <div id="dosHead"></div>
+        <div id="truth" style="margin-top:8px"></div>
       </div>
-      <div class="section">
-        <h3>Таймлайн — до · окно · развилка · после</h3>
-        <div class="tl" id="context"></div>
-        <div id="origin"></div>
+
+      <!-- 2. Главный экран анализа: A/B сравнение (E3/E4) -->
+      <div class="section" id="secAB">
+        <h3>A/B — вклад портрета (E3/E4)</h3>
+        <div id="ab"></div>
       </div>
-      <div class="section">
-        <h3>Почему выбрана / отсеяна</h3>
+
+      <!-- 3. Память: W-покрытие и ключевой факт, давший ответ -->
+      <div class="section" id="secCoverage">
+        <h3>Память / W-покрытие</h3>
         <div id="why"></div>
-      </div>
-      <div class="section">
-        <h3>Какой контекст помогает</h3>
-        <div id="coverage"></div>
+        <div id="coverage" style="margin-top:6px"></div>
         <div class="snapshot" id="validFacts"></div>
       </div>
-      <div class="section">
-        <h3>Правильный ответ — истина</h3>
-        <div id="truth"></div>
-      </div>
-      <div class="section">
-        <h3>A/B — вклад портрета</h3>
-        <div id="ab"></div>
-        <details class="sub">
-          <summary>инъекция плеча A — слепок на M</summary>
-          <p class="hint" id="snapshotHint"></p>
-          <div class="snapshot" id="snapshot"></div>
-        </details>
-      </div>
+
+      <!-- 4. Свёрнутые секции контекста и деталей (по клику) -->
+      <details class="section" id="secTimeline">
+        <summary><b>Контекст и таймлайн диалога</b> (окно N реплик · префикс · будущее)</summary>
+        <div class="tl" id="context" style="margin-top:8px"></div>
+        <div id="origin"></div>
+      </details>
+
+      <details class="section" id="secSnapshot">
+        <summary><b>Полный слепок памяти на M</b> (инъекция плеча A)</summary>
+        <p class="hint" id="snapshotHint"></p>
+        <div class="snapshot" id="snapshot"></div>
+      </details>
+
       <details class="section" id="prodSection">
         <summary>Выводы в production-базе</summary>
         <p class="hint" id="prodHint"></p>
         <div class="snapshot" id="prodFacts"></div>
       </details>
-      <details class="section">
-        <summary>Разметка точки — форма</summary>
-        <form id="pointForm" onsubmit="return false">
+
+      <details class="section" id="secForm">
+        <summary>Инструменты разметки (форма / журнал отсева)</summary>
+        <form id="pointForm" onsubmit="return false" style="margin-top:8px">
           <div class="row-flex">
             <div class="field" style="flex:1"><label for="f-id">id</label><input id="f-id" style="width:100%"></div>
             <div class="field"><label for="f-level">уровень</label>
@@ -246,19 +266,18 @@
             <span class="hint" id="saveHint"></span>
           </div>
         </form>
-      </details>
-      <details class="section verdicts">
-        <summary>Вердикт по кандидату → журнал</summary>
-        <div class="row-flex">
-          <button onclick="journal('taken', '')">✔ взят</button>
-          <button class="reject" onclick="journal('rejected', 'poor-log')">✘ poor-log</button>
-          <button class="reject" onclick="journal('rejected', 'no-fork')">✘ no-fork</button>
-          <button class="reject" onclick="journal('rejected', 'in-window')">✘ in-window</button>
-          <button class="reject" onclick="journal('rejected', 'encoding')">✘ encoding</button>
-          <button class="reject" onclick="journal('rejected', 'noise')">✘ noise</button>
+        <div class="verdicts" style="margin-top:10px">
+          <div class="row-flex">
+            <button onclick="journal('taken', '')">✔ взят</button>
+            <button class="reject" onclick="journal('rejected', 'poor-log')">✘ poor-log</button>
+            <button class="reject" onclick="journal('rejected', 'no-fork')">✘ no-fork</button>
+            <button class="reject" onclick="journal('rejected', 'in-window')">✘ in-window</button>
+            <button class="reject" onclick="journal('rejected', 'encoding')">✘ encoding</button>
+            <button class="reject" onclick="journal('rejected', 'noise')">✘ noise</button>
+          </div>
+          <p class="hint">poor-log — не выводимо из префикса; no-fork — знание не меняет ответ; in-window — происхождение
+            факта в окне; encoding — сигнала в слепке нет. Отсев — точку из датасета убрать руками.</p>
         </div>
-        <p class="hint">poor-log — не выводимо из префикса; no-fork — знание не меняет ответ; in-window — происхождение
-          факта в окне; encoding — сигнала в слепке нет. Отсев — точку из датасета убрать руками.</p>
       </details>
     </div>
   </div>
@@ -278,7 +297,7 @@
 "use strict";
 const state = { day: [], points: [], snapshots: [], journal: [], wcheck: [],
   prodFacts: [], prodError: "", prodIrrelevant: false, answers: {}, oracles: [],
-  selected: null, listMode: "points" };
+  selected: null, listMode: "points", pointFilter: "all" };
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -308,6 +327,14 @@ const solvedOf = (o) => !!o && (o.a?.pass) !== (o.b?.pass);
 const winnerOf = (o) => o.a?.pass ? "a" : "b";
 const spo = (f) => `${f.subject || ""} · ${f.predicate || ""} · ${f.object || ""}`;
 const pickText = (a) => a.answer || a.text || a.content || "";
+
+function setFilter(f) {
+  state.pointFilter = f;
+  document.querySelectorAll("#pointFilters .chip").forEach(el => {
+    el.classList.toggle("active", el.dataset.filter === f);
+  });
+  renderPointList();
+}
 
 function latestJournal() {
   const m = new Map();
@@ -369,6 +396,8 @@ function setMode(mode) {
     ? "Точки и кандидаты"
     : `Реплики среза <span class="hint" id="dayInfo"></span>`;
   $("descWrap").style.display = mode === "log" ? "" : "none";
+  const pf = $("pointFilters");
+  if (pf) pf.style.display = mode === "points" ? "flex" : "none";
   renderLeft();
 }
 
@@ -385,6 +414,36 @@ function renderPointList() {
     .filter(([key, j]) => j.verdict === "rejected" && !hasPoint.has(key))
     .map(([key, j]) => ({ session: j.session, id: j.candidateId }))
     .sort((a, b) => a.id - b.id);
+
+  // Счётчики для кнопок-фильтров
+  let winACnt = 0, winBCnt = 0, tieCnt = 0, covCnt = 0;
+  for (const p of points) {
+    const o = oracleAt(p.id);
+    if (solvedOf(o)) {
+      if (winnerOf(o) === "a") winACnt++; else winBCnt++;
+    } else if (o) {
+      tieCnt++;
+    }
+    const rep = wcheckAt(p.id);
+    if (rep && rep.covered) covCnt++;
+  }
+  const updateChip = (sel, text) => { const el = document.querySelector(sel); if (el) el.textContent = text; };
+  updateChip('#pointFilters [data-filter="all"]', `Все (${points.length})`);
+  updateChip('#pointFilters [data-filter="winA"]', `A✔ B✘ (${winACnt})`);
+  updateChip('#pointFilters [data-filter="winB"]', `A✘ B✔ (${winBCnt})`);
+  updateChip('#pointFilters [data-filter="tie"]', `A=B (${tieCnt})`);
+  updateChip('#pointFilters [data-filter="covered"]', `W ✔ (${covCnt})`);
+
+  let visiblePoints = points;
+  if (state.pointFilter === "winA") {
+    visiblePoints = points.filter(p => { const o = oracleAt(p.id); return solvedOf(o) && winnerOf(o) === "a"; });
+  } else if (state.pointFilter === "winB") {
+    visiblePoints = points.filter(p => { const o = oracleAt(p.id); return solvedOf(o) && winnerOf(o) === "b"; });
+  } else if (state.pointFilter === "tie") {
+    visiblePoints = points.filter(p => { const o = oracleAt(p.id); return o && !solvedOf(o); });
+  } else if (state.pointFilter === "covered") {
+    visiblePoints = points.filter(p => { const rep = wcheckAt(p.id); return rep && rep.covered; });
+  }
 
   const pointItem = (p) => {
     const j = latest.get(jKey(p.sourceSession, p.sourceMessageId));
@@ -425,10 +484,11 @@ function renderPointList() {
 
   const group = (title, body) =>
     `<div class="pl-group">${title}</div>${body || `<div class="hint" style="padding:4px 12px">пусто</div>`}`;
+  const showRej = state.pointFilter === "all";
   $("leftList").innerHTML =
-    group("L1 — W-точки · инъекция должна помочь", points.filter(p => p.level === "L1").map(pointItem).join("")) +
-    group("C — контроль утечки · память должна молчать", points.filter(p => p.level === "C").map(pointItem).join("")) +
-    group("Отсеянные кандидаты · отрицательные досье", rejected.map(rejItem).join(""));
+    group("L1 — W-точки · инъекция должна помочь", visiblePoints.filter(p => p.level === "L1").map(pointItem).join("")) +
+    group("C — контроль утечки · память должна молчать", visiblePoints.filter(p => p.level === "C").map(pointItem).join("")) +
+    (showRej ? group("Отсеянные кандидаты · отрицательные досье", rejected.map(rejItem).join("")) : "");
 }
 
 /** Режим разметки: реплики среза, выбор кандидата M. Сессий больше одной (LME-микромиры или
@@ -496,12 +556,18 @@ function selectMsg(session, id) {
     $("f-mustNot").value = (p.mustNot || []).join(", "); $("f-coverage").value = p.coverage || "";
     $("saveBtn").style.display = "none";
     $("saveHint").textContent = "точка существует — правки руками в jsonl, потом ⟳";
+    $("secTimeline").open = false;
+    $("secSnapshot").open = false;
+    $("prodSection").open = false;
+    $("secForm").open = false;
   } else {
     $("f-id").value = `L1-${msg.id}`; $("f-level").value = "L1"; $("f-trigger").value = msg.content;
     $("f-pattern").value = ""; $("f-truth").value = ""; $("f-must").value = "";
     $("f-mustNot").value = ""; $("f-coverage").value = "";
     $("saveBtn").style.display = "";
     $("saveHint").textContent = "";
+    $("secTimeline").open = true;
+    $("secForm").open = true;
   }
   renderLeft();
   renderHead(msg, p);
@@ -540,8 +606,10 @@ function renderHead(m, p) {
     o && solvedOf(o) ? `<span class="badge ${winnerOf(o) === "a" ? "pass" : "fail"}">A/B: победа ${winnerOf(o) === "a" ? "A" : "B"}</span>`
       : o ? `<span class="badge dim2">A/B: ничья</span>` : ""
   ].filter(Boolean).join(" ");
+  const triggerText = p ? p.trigger : m.content;
   $("dosHead").innerHTML = `<div class="card"><div class="card-head">${badges}</div>
-    ${p && p.pattern ? `<div>${esc(p.pattern)}</div>` : ""}</div>`;
+    <div class="hero-trigger">${esc(triggerText)}</div>
+    ${p && p.pattern ? `<div class="hint" style="margin-top:4px">паттерн: ${esc(p.pattern)}</div>` : ""}</div>`;
 }
 
 /* ── таймлайн ── */
@@ -647,6 +715,10 @@ function renderWhy(m, p, jArg) {
     else html += rep.covered
       ? `<p style="color:var(--ok)">W ✔ covered — валидных фактов-покрытий: ${(rep.valid || []).length}${counts ? " · " + counts : ""} (см. «Какой контекст помогает»)</p>`
       : `<p style="color:var(--err)">W ✘ not-covered — валидного покрытия нет${counts ? " · " + counts : ""}: кандидат на in-window reject или добор сетки.</p>`;
+    if (rep.status !== "insufficient-grid")
+      html += rep.answerCovered
+        ? `<p style="color:var(--ok)">Ответ ✔ — must-ответ анкерован valid-фактом (Encoding извлёк факт-ответ)</p>`
+        : `<p style="color:var(--warn)">Ответ ✘ — must-ответ не найден среди valid-фактов (строгая подстрока: парафразы считаются промахом)</p>`;
   } else {
     html += hint(`точки на #${m.id} нет — кандидат. Порядок разметки (§2.9): паттерн → выводимость из префикса
       (эвристика под таймлайном) → развилка M → форма → сохранить → replay → wcheck.`);
@@ -718,8 +790,8 @@ function renderTruth(p) {
     return;
   }
   const chip = (t, bad) => `<span class="chip-term ${bad ? "bad" : ""}">${esc(t)}</span>`;
-  $("truth").innerHTML = `<div class="card">
-    <div class="truth-txt">${esc(p.truth)}</div>
+  $("truth").innerHTML = `<div class="card" style="border-left: 3px solid var(--ok)">
+    <div class="kv"><span>эталон (truth)</span><div class="truth-txt">${esc(p.truth)}</div></div>
     <div style="margin-top:6px">${(p.must || []).map(t => chip(t)).join(" ")}
       ${(p.mustNot || []).map(t => chip(t, true)).join(" ")}</div>
     <p class="hint">must — обязаны присутствовать в ответе плеча · mustNot — маркеры ошибки
@@ -746,6 +818,7 @@ function renderAB(p) {
     const badge = v
       ? (v.pass ? `<span class="badge pass">✔ pass</span>` : `<span class="badge fail">✘ fail</span>`)
       : `<span class="badge dim2">нет вердикта</span>`;
+    const cardCls = v ? (v.pass ? "arm arm-pass" : "arm arm-fail") : "arm";
     const text = a ? highlightTerms(pickText(a), terms) : `<span class="hint">ответа нет</span>`;
     const meta = a ? [a.model, a.tokens != null ? a.tokens + "t" : null,
         a.latencyMs != null ? a.latencyMs + "ms" : null, a.cached ? "кэш" : null,
@@ -754,7 +827,7 @@ function renderAB(p) {
       ? `<div class="ab-miss">must не найдены: ${(v.missedMust || []).map(esc).join(", ")}</div>` : "";
     const leakHit = arm === "a" && v && (v.matchedMustNot || []).length
       ? `<div class="ab-miss" style="color:var(--err)">mustNot в ответе (leak): ${(v.matchedMustNot || []).map(esc).join(", ")}</div>` : "";
-    return `<div class="arm"><div class="card-head"><b>${label}</b> ${badge} <span class="hint">${note}</span></div>
+    return `<div class="${cardCls}"><div class="card-head"><b>${label}</b> ${badge} <span class="hint">${note}</span></div>
       <div class="arm-text">${text}</div>${missed}${leakHit}${meta ? `<div class="meta">${meta}</div>` : ""}</div>`;
   };
   const cLeak = p.level === "C" && o && o.leak
