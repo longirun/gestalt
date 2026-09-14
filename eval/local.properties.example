@@ -30,8 +30,9 @@ source.day-to=
 source.fixture=
 
 # LongMemEval (positive control каркаса / внешний бенчмарк Р37): путь к json-массиву вопросов;
-# точки вида lme-<question_id>, портрет каждого вопроса изолирован (project = sourceSession)
-source.lme.file=
+# точки вида lme-<question_id>, портрет каждого вопроса изолирован (project = sourceSession).
+# Файл — конфиг oracle (S) с HF xiaowu0162/longmemeval; качается руками: см. README «С нуля»
+source.lme.file=data/lme/longmemeval_oracle.json
 
 # Калибровка батчинга (research/25 §1.2)
 batch.max-messages=20
@@ -46,7 +47,7 @@ portrait.owner=user:anton
 portrait.project=project:jrestly
 
 # Датасет точек: рабочий файл разметки E2 (план 31 §2.5) — eval/data, вне VCS;
-# example — для отладки стадий E3-E5
+# для прогона синтетики E2-PC — dataset/points.lme.jsonl (в VCS, см. README «С нуля»)
 dataset.file=data/points.live.jsonl
 
 # Тест чистоты системного промпта: список токенов через запятую

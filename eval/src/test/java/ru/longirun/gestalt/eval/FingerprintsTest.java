@@ -29,7 +29,7 @@ class FingerprintsTest {
     @Test
     void stableForSameConfigAndDataset() throws Exception {
         List<EvalPoint> points = List.of(new EvalPoint("p1", "L1", "lme-abc", 10,
-                "t", "tr", List.of(), List.of(), null, null));
+                "t", "tr", List.of(), List.of(), null, null, null, null));
         EvalConfig config = config("src/test/resources/lme/tiny.json", "qwen", "", 20, 5);
         assertEquals(Fingerprints.ingestFp(config, points), Fingerprints.ingestFp(config, points));
         assertEquals(Fingerprints.answerFp(config), Fingerprints.answerFp(config));
@@ -38,9 +38,9 @@ class FingerprintsTest {
     @Test
     void ingestFpSensitiveToModelBatchAndSource() throws Exception {
         List<EvalPoint> lme = List.of(new EvalPoint("p1", "L1", "lme-abc", 10,
-                "t", "tr", List.of(), List.of(), null, null));
+                "t", "tr", List.of(), List.of(), null, null, null, null));
         List<EvalPoint> live = List.of(new EvalPoint("p2", "L1", "session-x", 10,
-                "t", "tr", List.of(), List.of(), null, null));
+                "t", "tr", List.of(), List.of(), null, null, null, null));
         EvalConfig base = config("src/test/resources/lme/tiny.json", "qwen", "", 20, 5);
 
         assertNotEquals(Fingerprints.ingestFp(base, lme),

@@ -51,6 +51,32 @@ A с дайджестом слепка в системном промпте, B �
 valid-фактом, подстрока регистронезависимо — честная метрика «Encoding извлекает факты-ответы»;
 лексические парафразы считаются промахом).
 
+## С нуля (сторонний прогон E2-PC)
+
+Прибор воспроизводим из чистого чекаута: код, схема и LME-датасет точек — в VCS;
+руками только пустая БД, LME-сырьё и LLM-ключ.
+
+1. **JDK 21 + PG 16+** (pgvector опционален — SchemaMigrator деградирует без него):
+   ```bash
+   docker run -d --name gestalt-eval-pg -e POSTGRES_PASSWORD=postgres -p 5433:5433 pgvector/pgvector:pg16
+   ```
+2. **Роль и БД** (схему внутри поднимет SchemaMigrator при первом прогоне стадии — sql/001..006 в ресурсах):
+   ```bash
+   psql -h localhost -p 5433 -U postgres -f eval/sql/000_bootstrap.sql
+   # креды не по умолчанию: -v eval_user=… -v eval_password=… [-v eval_db=…] — те же, что target.db.* в local.properties
+   ```
+3. **LME-сырьё**: файл oracle (S) с HF `xiaowu0162/longmemeval` → `eval/data/lme/longmemeval_oracle.json` (haystack-сессии для replay; сами точки — уже в VCS в `dataset/points.lme.jsonl`).
+4. **Конфиг**: `cp eval/local.properties.example eval/local.properties`, заполнить `llm.*` (ключ любого OpenAI-совместимого API; можно env `LLM_API_KEY`), `dataset.file=dataset/points.lme.jsonl`.
+5. **Прогон**: `./gradlew -p eval run -Pargs=all` — replay → arms → oracles → report (`out/report.md`).
+
+Живой лог Honcho (`source.db.*`) для синтетики не нужен — только для живой разметки (E2).
+Юнит-тесты без БД зелёные: PG-зависимые пропускаются при недоступном `:5433`.
+
+**Что воспроизводится — процедура, не биты.** Смена экстрактора/отвечающей модели = другой
+`ingest_fp`/`answer_fp` (Fingerprints, план 31 §7.2) = другой эксперимент с другими числами;
+калибровочные цифры (+48 pp, research/27) привязаны к конфигурации калибровки. Это свойство
+объекта измерения (LLM), не дефект каркаса.
+
 ## Lifecycle экспериментов
 
 PG — источник истины всего, что записал прибор. Реестр `experiments` (slug, статус active/archived,

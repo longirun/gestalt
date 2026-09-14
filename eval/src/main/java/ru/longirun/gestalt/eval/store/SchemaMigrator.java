@@ -5,7 +5,7 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.util.Scanner;
 
-/** Применяет sql/001..005 к целевой базе (gestalt_eval): факты, слепки, чекпоинты, lifecycle, пер-точечные слепки. */
+/** Применяет sql/001..006 к целевой базе (gestalt_eval): факты, слепки, чекпоинты, lifecycle, пер-точечные слепки, словарь forkType. */
 public final class SchemaMigrator {
 
     public static void migrate(Connection connection) throws Exception {
@@ -14,6 +14,7 @@ public final class SchemaMigrator {
         apply(connection, "/sql/003_eval_checkpoint.sql");
         apply(connection, "/sql/004_lifecycle.sql");
         apply(connection, "/sql/005_point_snapshots.sql");
+        apply(connection, "/sql/006_fork_types.sql");
     }
 
     private static void apply(Connection connection, String resource) throws Exception {
