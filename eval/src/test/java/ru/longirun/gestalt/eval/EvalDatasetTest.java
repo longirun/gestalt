@@ -69,6 +69,36 @@ class EvalDatasetTest {
     }
 
     @Test
+    void loadsSpanFieldsOfSpec33() throws IOException {
+        // спека 33 §3/§7: forkType + анкер истины truthMessageId
+        Path file = dataset(
+                "{\"id\":\"L1-000\",\"level\":\"L1\",\"sourceSession\":\"s\",\"sourceMessageId\":10,"
+                        + "\"trigger\":\"спан реплики M\",\"truth\":\"спан реплики-носителя\","
+                        + "\"must\":[],\"mustNot\":[],\"forkType\":\"known-pitfall\",\"truthMessageId\":17}");
+        List<EvalPoint> points = EvalDataset.load(file);
+
+        EvalPoint point = points.getFirst();
+        assertEquals("known-pitfall", point.forkType());
+        assertEquals(17L, point.truthMessageId());
+    }
+
+    @Test
+    void legacyPointsWithoutSpanFieldsLoadWithNulls() throws IOException {
+        // архивы 0911 и points.lme.jsonl размечены до спеки 33: полей нет — forkType/truthMessageId = null
+        Path file = dataset(
+                "{\"id\":\"L1-000\",\"level\":\"L1\",\"sourceSession\":\"s\",\"sourceMessageId\":10,"
+                        + "\"trigger\":\"t\",\"truth\":\"r\",\"must\":[],\"mustNot\":[],\"coverage\":\"c\"}",
+                "{\"id\":\"C-001\",\"level\":\"C\",\"sourceSession\":\"s\",\"sourceMessageId\":20,"
+                        + "\"trigger\":\"t\",\"truth\":\"r\",\"must\":[],\"mustNot\":[]}");
+        List<EvalPoint> points = EvalDataset.load(file);
+
+        for (EvalPoint point : points) {
+            assertNull(point.forkType());
+            assertNull(point.truthMessageId());
+        }
+    }
+
+    @Test
     void skipsBlankLines() throws IOException {
         Path file = dataset(
                 "",

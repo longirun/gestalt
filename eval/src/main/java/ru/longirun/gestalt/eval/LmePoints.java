@@ -54,6 +54,8 @@ public final class LmePoints {
                     List.of(answer),
                     List.of(),
                     "lme:" + record.questionType(),
+                    null,
+                    null,
                     null));
         });
         return points;
