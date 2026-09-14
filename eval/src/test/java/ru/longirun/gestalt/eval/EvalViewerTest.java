@@ -32,6 +32,7 @@ import java.util.regex.Pattern;
 import ru.longirun.gestalt.eval.ingest.LongMemEvalAdapter;
 import ru.longirun.gestalt.eval.ingest.RawMessage;
 import ru.longirun.gestalt.eval.store.ExperimentStore;
+import ru.longirun.gestalt.eval.store.ForkTypeStore;
 import ru.longirun.gestalt.eval.store.PointSnapshotStore;
 import ru.longirun.gestalt.eval.store.ResultStore;
 
@@ -99,6 +100,8 @@ class EvalViewerTest {
             sendProdFacts(ex, dataDir, activePointsFile, config, prodDb, exp);
         } else if ("GET".equals(method) && "/api/points".equals(path)) {
             sendFileAsJsonl(ex, activePointsFile);
+        } else if ("GET".equals(method) && "/api/fork-types".equals(path)) {
+            sendForkTypes(ex, config);
         } else if ("GET".equals(method) && "/api/journal".equals(path)) {
             sendFileAsJsonl(ex, activeJournalFile);
         } else if ("GET".equals(method) && "/api/experiments".equals(path)) {
@@ -140,6 +143,18 @@ class EvalViewerTest {
     private void sendFileAsJsonl(HttpExchange ex, Path file) throws IOException {
         String body = Files.exists(file) ? Files.readString(file) : "";
         respond(ex, 200, body);
+    }
+
+    /** Словарь forkType (спека 33 §6): ключи fork_types из gestalt_eval; БД недоступна —
+     *  пустой список (select с единственной пустой опцией, разметчик вводит ключ руками). */
+    private void sendForkTypes(HttpExchange ex, EvalConfig config) throws IOException {
+        List<String> keys = new ArrayList<>();
+        try (Connection c = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            new ForkTypeStore(c).list().forEach(ft -> keys.add(ft.key()));
+        } catch (Exception ignore) {
+        }
+        respond(ex, 200, MAPPER.writeValueAsString(keys));
     }
 
     /** Разделение точек датасета: LME-сессии (день из LongMemEval-файла) и live (candidates.jsonl). */
@@ -480,7 +495,9 @@ class EvalViewerTest {
                 props.getProperty("prod.db.password", ""));
     }
 
-    /** Append черновика/точки в points-file. Правка существующих — руками в IDE (план 31 §2.7). */
+    /** Append черновика/точки в points-file. Правка существующих — руками в IDE (план 31 §2.7).
+     *  Спан-поля протокола 33: truth обязателен только для L1 (у C истины нет — §3),
+     *  truthMessageId/forkType опциональны на вводе (пробелы в разметке ловит validate). */
     private void appendPoint(HttpExchange ex, Path pointsFile) throws IOException {
         JsonNode body = readBody(ex);
         String id = body.path("id").asText("").trim();
@@ -498,8 +515,12 @@ class EvalViewerTest {
             respond(ex, 400, "{\"error\":\"sourceMessageId required\"}");
             return;
         }
-        if (body.path("trigger").asText("").isBlank() || body.path("truth").asText("").isBlank()) {
-            respond(ex, 400, "{\"error\":\"trigger and truth required\"}");
+        if (body.path("trigger").asText("").isBlank()) {
+            respond(ex, 400, "{\"error\":\"trigger required\"}");
+            return;
+        }
+        if ("L1".equals(level) && body.path("truth").asText("").isBlank()) {
+            respond(ex, 400, "{\"error\":\"truth required for L1 (span of the future log, spec 33 §3)\"}");
             return;
         }
         if ("C".equals(level) && body.path("mustNot").isEmpty()) {
@@ -580,6 +601,10 @@ class EvalViewerTest {
         node.put("pattern", pattern.isEmpty() ? null : pattern);
         String coverage = body.path("coverage").asText("");
         node.put("coverage", coverage.isEmpty() ? null : coverage);
+        String forkType = body.path("forkType").asText("");
+        node.put("forkType", forkType.isEmpty() ? null : forkType);
+        long truthMessageId = body.path("truthMessageId").asLong(0);
+        node.put("truthMessageId", truthMessageId > 0 ? truthMessageId : null);
         return node;
     }
 

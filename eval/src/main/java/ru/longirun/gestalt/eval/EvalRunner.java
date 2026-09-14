@@ -46,6 +46,7 @@ public final class EvalRunner {
         switch (step) {
             case "replay" -> runReplay(config, args);
             case "candidates" -> runCandidates(config, args);
+            case "validate" -> runValidate(config, args);
             case "wcheck" -> runWCheck(config, args);
             case "lme" -> runLmeConvert(config, args);
             case "arms" -> runArms(config, args);
@@ -90,6 +91,53 @@ public final class EvalRunner {
         Files.writeString(out, sb.toString());
         System.out.printf("[CANDIDATES] session '%s', %s..%s: %d message(s) -> %s%n",
                 sourceSession, config.sourceDayFrom(), config.sourceDayTo(), log.size(), out.normalize());
+    }
+
+    /**
+     * Аудит датасета спан-инвариантами И1–И3 (спека 33 §4): 0 LLM, 0 PG — валидатор
+     * дешевле любой стадии прибора, мусор отсекается до replay. `validate [datasetPath]`:
+     * без аргумента — dataset.file конфига, с аргументом — путь к jsonl (ретро-прогон
+     * архивов без правки properties). Журнал разметки — out/validate.<имя-датасета>
+     * (перезапись: прогон детерминирован); reject-статусы — не исключение, validate
+     * всегда завершается полным отчётом.
+     */
+    private static void runValidate(EvalConfig config, String[] args) throws Exception {
+        String dataset = args.length > 1 && !args[1].isBlank() ? args[1] : config.datasetFile();
+        List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(dataset));
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        StringBuilder journal = new StringBuilder();
+        for (Map.Entry<String, List<EvalPoint>> entry : groupBySession(points).entrySet()) {
+            String sourceSession = entry.getKey();
+            boolean lme = isLme(config, sourceSession);
+            List<RawMessage> log = lme ? List.of() : readLog(config, sourceSession);
+            if (!lme && log.isEmpty()) {
+                throw new IllegalStateException("no messages for session '%s' in %s..%s: check source.db.* and source.day-from/to"
+                        .formatted(sourceSession, config.sourceDayFrom(), config.sourceDayTo()));
+            }
+            for (EvalPoint point : entry.getValue()) {
+                SpanValidator.PointVerdict verdict =
+                        SpanValidator.validate(point, log, config.windowSize(), lme);
+                counts.merge(verdict.status(), 1, Integer::sum);
+                System.out.printf("[VALIDATE] point %s: %s%s%n", point.id(), verdict.status(),
+                        verdict.details().isEmpty() ? "" : " — " + String.join("; ", verdict.details()));
+                journal.append(mapper.writeValueAsString(verdict)).append('\n');
+            }
+        }
+
+        Path out = EvalPaths.evalDir().resolve("out/validate." + Path.of(dataset).getFileName());
+        Files.createDirectories(out.getParent());
+        Files.writeString(out, journal.toString());
+        StringBuilder summary = new StringBuilder();
+        for (Map.Entry<String, Integer> e : counts.entrySet()) {
+            if (!summary.isEmpty()) {
+                summary.append(", ");
+            }
+            summary.append(e.getKey()).append(' ').append(e.getValue());
+        }
+        System.out.printf("[VALIDATE] %s: %d point(s) -> %s | %s%n",
+                dataset, points.size(), out.normalize(), summary);
     }
 
     /**

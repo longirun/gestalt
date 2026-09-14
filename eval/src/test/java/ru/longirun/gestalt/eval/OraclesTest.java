@@ -24,6 +24,18 @@ class OraclesTest {
     }
 
     @Test
+    void cyrillicMarkersRespectWordBoundaries() {
+        // ловля ревью 2026-09-14: ASCII-only [A-Za-z0-9] считал кириллицу разделителем —
+        // «тест» ложно матчился в «тесты»/«тестирование»/«протест»; теперь [\p{L}\p{N}]
+        assertTrue(Oracles.matches("запущу тесты отдельно", "тесты"));
+        assertFalse(Oracles.matches("Убеждусь, что тесты действительно выполнились", "тест"));
+        assertFalse(Oracles.matches("нужно тестирование вручную", "тест"));
+        assertFalse(Oracles.matches("это протест против конфигурации", "тест"));
+        assertFalse(Oracles.matches("зацикливание сборки", "цикл"));
+        assertTrue(Oracles.matches("повтори цикл ещё раз", "цикл"));
+    }
+
+    @Test
     void matchingIsCaseInsensitiveAndNormalizesYo() {
         assertTrue(Oracles.matches("a Golden Retriever puppy", "golden retriever"));
         assertTrue(Oracles.matches("Всё готово", "всё"), "ё маркера матчится против е в ответе");
