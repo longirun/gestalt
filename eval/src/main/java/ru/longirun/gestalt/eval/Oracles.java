@@ -43,9 +43,12 @@ public final class Oracles {
 
     /** Маркер найден в ответе. Языко-независимая нижняя граница (smoke-ярус): lowercase,
      * ё→е, срез markdown-разметки (урок LME-3d86fd0a: «a **coffee shop**»), вхождение
-     * с границами слов ([A-Za-z0-9]) — «18» не совпадает с «180». Морфологию (ординалы,
-     * числа, артикли, местоимения) и парафразы сознательно НЕ закрываем: завтра материал
-     * будет по-русски и на других языках — это ярус LLM-судьи, не матчера. */
+     * с Unicode-границами слов ([\p{L}\p{N}] — ловля ревью 2026-09-14: ASCII-only класс
+     * [A-Za-z0-9] считал кириллицу разделителем — «тест» ложно матчился в «тесты»,
+     * «протест») — «18» не совпадает с «180», «тест» не совпадает с «тестирование».
+     * Морфологию (ординалы, числа, артикли, местоимения) и парафразы сознательно НЕ
+     * закрываем: завтра материал будет по-русски и на других языках — это ярус
+     * LLM-судьи, не матчера. */
     static boolean matches(String answer, String marker) {
         if (answer == null || marker == null || marker.isBlank()) {
             return false;
@@ -55,7 +58,7 @@ public final class Oracles {
         if (needle.isBlank()) {
             return false;
         }
-        Pattern p = Pattern.compile("(?<![A-Za-z0-9])" + Pattern.quote(needle) + "(?![A-Za-z0-9])");
+        Pattern p = Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(needle) + "(?![\\p{L}\\p{N}])");
         return p.matcher(haystack).find();
     }
 

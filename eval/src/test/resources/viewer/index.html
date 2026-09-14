@@ -167,7 +167,13 @@
   td.wrap { white-space: normal; }
   #bottom { margin: 0 16px 24px; }
   .flash { position: fixed; bottom: 16px; right: 16px; background: var(--panel); border: 1px solid var(--accent);
-           border-radius: 6px; padding: 8px 14px; display: none; z-index: 10; }
+            border-radius: 6px; padding: 8px 14px; display: none; z-index: 10; }
+  .selbar { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--accent);
+            border-radius: 6px; padding: 4px; display: none; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+  .selbar button { margin: 0 2px; }
+  mark.span-t { background: #dce8fc; color: #2b6fd6; }
+  mark.span-truth { background: #d9f1e1; color: #237a46; }
+  .badge.truth { background: #d9f1e1; color: var(--ok); }
 </style>
 </head>
 <body>
@@ -254,9 +260,15 @@
           </div>
           <div class="field"><label for="f-pattern">pattern — какое знание о юзере/проекте тестируем (шаг 1, до выбора M)</label>
             <textarea id="f-pattern"></textarea></div>
-          <div class="field"><label for="f-trigger">trigger — реплика-развилка M</label><textarea id="f-trigger"></textarea></div>
-          <div class="field"><label for="f-truth">truth — что юзер реально сделал дальше (из «будущего»)</label>
+          <div class="field"><label for="f-trigger">trigger — реплика-развилка M (выдели спан в логе → «⟶ триггер»)</label><textarea id="f-trigger"></textarea></div>
+          <div class="field"><label for="f-truth">truth — что юзер реально сделал дальше (выдели спан в «будущем» → «⟶ истина»)</label>
             <textarea id="f-truth"></textarea></div>
+          <div class="row-flex">
+            <div class="field"><label for="f-forkType">forkType — категория развилки (словарь fork_types, спека 33 §6)</label>
+              <select id="f-forkType" style="min-width:200px"></select></div>
+            <div class="field"><label for="f-truth-id">truthMessageId — анкер истины (id реплики-носителя спана)</label>
+              <input id="f-truth-id" type="number" min="1" style="width:110px"></div>
+          </div>
           <div class="row-flex">
             <div class="field" style="flex:1"><label for="f-must">must (через запятую)</label>
               <input id="f-must" style="width:100%"></div>
@@ -296,13 +308,17 @@
   </div>
 </div>
 <div class="flash" id="flash"></div>
+<div class="selbar" id="selbar">
+  <button onclick="fixSpan('trigger')">⟶ триггер (M #<span id="selbarMid"></span>)</button>
+  <button onclick="fixSpan('truth')">⟶ истина (+якорь #<span id="selbarMid2"></span>)</button>
+</div>
 
 <script>
 "use strict";
 const state = { day: [], points: [], snapshots: [], journal: [], wcheck: [],
   prodFacts: [], prodError: "", prodIrrelevant: false, answers: {}, oracles: [],
   selected: null, listMode: "points", pointFilter: "all",
-  experiments: [], currentExp: null, expError: "" };
+  experiments: [], currentExp: null, expError: "", forkTypes: [] };
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -399,6 +415,36 @@ async function parseJsonl(resp) {
              .filter(Boolean);
 }
 
+/** Словарь forkType (спека 33 §6) из gestalt_eval; недоступна — пустой select. */
+function loadForkTypes() {
+  return fetch("/api/fork-types").then(r => r.json())
+    .then(list => { state.forkTypes = Array.isArray(list) ? list : []; })
+    .catch(() => { state.forkTypes = []; })
+    .then(fillForkTypes);
+}
+
+/** Перерисовка select forkType; текущее значение сохраняется (в т.ч. вне словаря — ручной ввод). */
+function fillForkTypes() {
+  const selEl = $("f-forkType");
+  if (!selEl) return;
+  const cur = selEl.value;
+  const options = ["", ...state.forkTypes];
+  if (cur && !options.includes(cur)) options.push(cur);
+  selEl.innerHTML = options.map(k =>
+    `<option value="${esc(k)}">${esc(k || "— не задан")}</option>`).join("");
+  selEl.value = cur;
+}
+
+/** Установка forkType в select: значение вне словаря (БД недоступна, новая категория)
+ *  добавляется опцией — иначе select молча сбрасывается в «— не задан» (ревью 2.1). */
+function setForkType(val) {
+  const selEl = $("f-forkType");
+  if (!selEl) return;
+  const v = val || "";
+  if (v && ![...selEl.options].some(o => o.value === v)) selEl.add(new Option(v, v));
+  selEl.value = v;
+}
+
 async function loadAll() {
   const urlExp = new URLSearchParams(window.location.search).get("exp");
   if (urlExp && !state.currentExp) {
@@ -437,6 +483,7 @@ async function loadAll() {
   state.prodIrrelevant = !Array.isArray(prod) && !!prod.lme;
   state.answers = answers || {};
   state.oracles = oracles;
+  if (!state.forkTypes.length) loadForkTypes();
   if (state.selected != null && !sel()) state.selected = null;
   renderStats(); renderLeft(); renderBottom();
   if (state.selected != null) selectMsg(state.selected.session, state.selected.id);
@@ -590,17 +637,20 @@ function renderMessages() {
     }
     const p = pointAt(m);
     const v = seenVerdicts.get(jKey(m.session, m.id));
+    const truthOwner = state.points.find(q => q.sourceSession === m.session && q.truthMessageId === m.id);
     const marks = [
       p ? `<span class="badge marked">${esc(p.level)} ${esc(p.id)}</span>` : "",
+      truthOwner ? `<span class="badge truth" title="реплика-носитель спана истины точки ${esc(truthOwner.id)}">истина ${esc(truthOwner.id)}</span>` : "",
       v ? `<span class="badge marked">${v.verdict === "taken" ? "✔" : "✘ " + esc(v.reason || "")}</span>` : "",
       !isLme(m.session) && inDb.has(m.id) ? `<span class="badge db">база</span>` : ""
     ].join(" ");
     const isSel = state.selected && state.selected.id === m.id && state.selected.session === m.session;
     html += `<div class="msg ${isSel ? "selected" : ""}" id="msg-${esc(m.session)}-${m.id}"
+      data-session="${esc(m.session)}" data-mid="${m.id}"
       onclick="selectMsg('${esc(m.session)}', ${m.id})">
       <div class="meta"><span>#${m.id}</span><span class="badge ${m.peer}">${esc(m.peer)}</span>
         <span>${esc((m.time || "").slice(11, 19))}</span><span>${m.tokens ?? ""}t</span>${marks}</div>
-      <div class="content">${esc(m.content)}</div></div>`;
+      <div class="content">${spanMarked(m)}</div></div>`;
   }
   $("leftList").innerHTML = html ||
     `<div class="empty">день пуст — LME-лог строится из LongMemEval-файла по точкам датасета,<br>
@@ -627,8 +677,9 @@ function selectMsg(session, id) {
   if (p) {
     $("f-id").value = p.id; $("f-level").value = p.level; $("f-trigger").value = p.trigger;
     $("f-pattern").value = p.pattern || "";
-    $("f-truth").value = p.truth; $("f-must").value = (p.must || []).join(", ");
+    $("f-truth").value = p.truth || ""; $("f-must").value = (p.must || []).join(", ");
     $("f-mustNot").value = (p.mustNot || []).join(", "); $("f-coverage").value = p.coverage || "";
+    setForkType(p.forkType); $("f-truth-id").value = p.truthMessageId ?? "";
     $("saveBtn").style.display = "none";
     $("saveHint").textContent = "точка существует — правки руками в jsonl, потом ⟳";
     $("secTimeline").open = false;
@@ -639,6 +690,7 @@ function selectMsg(session, id) {
     $("f-id").value = `L1-${msg.id}`; $("f-level").value = "L1"; $("f-trigger").value = msg.content;
     $("f-pattern").value = ""; $("f-truth").value = ""; $("f-must").value = "";
     $("f-mustNot").value = ""; $("f-coverage").value = "";
+    setForkType(""); $("f-truth-id").value = "";
     $("saveBtn").style.display = "";
     $("saveHint").textContent = "";
     $("secTimeline").open = true;
@@ -672,6 +724,7 @@ function renderHead(m, p) {
   const o = p && oracleAt(p.id);
   const badges = [
     p ? `<span class="lvl ${p.level}">${esc(p.level)}</span> <b>${esc(p.id)}</b>` : `<b>кандидат #${m.id}</b>`,
+    p && p.forkType ? `<span class="badge marked" title="категория развилки (словарь fork_types, спека 33 §6)">${esc(p.forkType)}</span>` : "",
     `<span class="hint">M #${m.id} · ${esc((m.time || "").slice(0, 16).replace("T", " "))}</span>`,
     j ? (j.verdict === "taken"
         ? `<span class="badge pass">✔ взят</span>`
@@ -717,10 +770,15 @@ function renderTimeline(m) {
     evTitle.set(id, (evTitle.get(id) || []).concat(f.statement || spo(f)));
   const evBadge = (id) => evTitle.has(id)
     ? ` <span class="badge ev" title="evidence валидного факта-покрытия: ${esc(evTitle.get(id).join(" | "))}">ev</span>` : "";
+  const truthBadge = (msg) => {
+    const tO = state.points.find(q => q.truthMessageId === msg.id);
+    return tO ? ` <span class="badge truth" title="реплика-носитель спана истины ${esc(tO.id)}">истина</span>` : "";
+  };
   const row = (msg, cls, whoExtra = "") =>
-    `<div class="tl-row ${cls}" onclick="this.classList.toggle('open')" title="клик — развернуть/свернуть">
-      <div class="who">#${msg.id} · ${esc(msg.peer)} · ${esc((msg.time || "").slice(11, 16))}${evBadge(msg.id)}${whoExtra}</div>
-      <div class="txt">${esc(msg.content)}</div></div>`;
+    `<div class="tl-row ${cls}" data-session="${esc(m.session)}" data-mid="${msg.id}"
+      onclick="this.classList.toggle('open')" title="клик — развернуть/свернуть">
+      <div class="who">#${msg.id} · ${esc(msg.peer)} · ${esc((msg.time || "").slice(11, 16))}${evBadge(msg.id)}${truthBadge(msg)}${whoExtra}</div>
+      <div class="txt">${spanMarked(msg)}</div></div>`;
   const zone = (label, cls = "") => `<div class="tl-zone ${cls}">${label}</div>`;
   let html = prefix.length
     ? zone(`префикс · ${prefix.length} реплик — знание вне окна: память могла усвоить, плечи не видят`)
@@ -729,9 +787,10 @@ function renderTimeline(m) {
     : zone("префикса нет — окно упирается в начало среза");
   html += zone(`окно (W0, M) · ${windowMsgs.length} реплик — видят оба плеча`, "win")
     + windowMsgs.map(x => row(x, "window")).join("");
-  html += `<div class="tl-row trigger" onclick="this.classList.toggle('open')">
+  html += `<div class="tl-row trigger" data-session="${esc(m.session)}" data-mid="${m.id}"
+    onclick="this.classList.toggle('open')">
     <div class="who">#${m.id} · <b>M — ${p ? "РАЗВИЛКА · триггер плеч" : "кандидат · потенциальная развилка"}</b>${evBadge(m.id)}</div>
-    <div class="txt">${esc(m.content)}</div></div>`;
+    <div class="txt">${spanMarked(m)}</div></div>`;
   html += zone(isLme(m.session)
       ? "будущее — LME-микромир заканчивается вопросом M · истина = gt-ответ бенчмарка"
       : "будущее — источник истины · системе недоступно", "fut")
@@ -867,6 +926,9 @@ function renderTruth(p) {
   const chip = (t, bad) => `<span class="chip-term ${bad ? "bad" : ""}">${esc(t)}</span>`;
   $("truth").innerHTML = `<div class="card" style="border-left: 3px solid var(--ok)">
     <div class="kv"><span>эталон (truth)</span><div class="truth-txt">${esc(p.truth)}</div></div>
+    <div class="kv"><span>якорь</span><div>${p.truthMessageId != null
+      ? `<button class="ev" onclick="jumpTo('${esc(p.sourceSession)}', ${p.truthMessageId})">#${p.truthMessageId}</button> — реплика-носитель спана истины`
+      : `<span class="st warn">нет (unanchored${p.level === "C" ? " — норма для C" : " — validate пометит"})</span>`}</div></div>
     <div style="margin-top:6px">${(p.must || []).map(t => chip(t)).join(" ")}
       ${(p.mustNot || []).map(t => chip(t, true)).join(" ")}</div>
     <p class="hint">must — обязаны присутствовать в ответе плеча · mustNot — маркеры ошибки
@@ -1025,29 +1087,50 @@ function truthTerms() {
 
 const highlightTruth = (text) => highlightTerms(text, truthTerms());
 
-/** Подсветка вхождений нормализованных термов: текст и термы обрабатываются одинаково (esc + lowercase + ё→е). */
-function highlightTerms(text, terms) {
-  terms = [...new Set(terms.filter(Boolean))];
-  if (!terms.length) return esc(text);
+/** Подсветка вхождений нормализованных термов: текст и термы обрабатываются одинаково
+ *  (esc + lowercase + ё→е). groups: [{terms, cls}] — cls вешается на <mark>
+ *  ("" — жёлтая общая, span-t — триггер, span-truth — истина; спека 33 §7-4). */
+function highlightGroups(text, groups) {
+  const applicable = groups.filter(g => g.terms.some(Boolean));
+  if (!applicable.length) return esc(text);
   const lowered = norm(text);
-  const marks = new Array(text.length).fill(false);
-  for (const term of terms) {
-    let from = 0;
-    while (true) {
-      const at = lowered.indexOf(term, from);
-      if (at < 0) break;
-      for (let k = at; k < at + term.length; k++) marks[k] = true;
-      from = at + term.length;
+  const marks = new Array(text.length).fill(null);
+  for (const g of applicable) {
+    for (const term of new Set(g.terms.filter(Boolean))) {
+      let from = 0;
+      while (true) {
+        const at = lowered.indexOf(term, from);
+        if (at < 0) break;
+        for (let k = at; k < at + term.length; k++) marks[k] = g.cls;
+        from = at + term.length;
+      }
     }
   }
-  let out = "", buf = "";
+  let out = "", buf = "", cur = null;
   for (let k = 0; k < text.length; k++) {
-    const ch = esc(text[k]);
-    if (marks[k]) { buf += ch; }
-    else { if (buf) { out += "<mark>" + buf + "</mark>"; buf = ""; } out += ch; }
+    if (marks[k] !== cur) {
+      if (buf) { out += cur === null ? buf : `<mark${cur ? ` class="${cur}"` : ""}>${buf}</mark>`; buf = ""; }
+      cur = marks[k];
+    }
+    buf += esc(text[k]);
   }
-  if (buf) out += "<mark>" + buf + "</mark>";
+  if (buf) out += cur === null ? buf : `<mark${cur ? ` class="${cur}"` : ""}>${buf}</mark>`;
   return out;
+}
+
+function highlightTerms(text, terms) {
+  return highlightGroups(text, [{terms, cls: ""}]);
+}
+
+/** Спаны-анкеры точки в реплике: trigger (синий) в реплике M, truth (зелёный) в носителе. */
+function spanMarked(msg) {
+  const pHere = pointAt(msg);
+  // сверка сессии обязательна: id-пространства сессий пересекаются (ревью 2.2)
+  const truthOwner = state.points.find(q => q.sourceSession === msg.session && q.truthMessageId === msg.id && q.truth);
+  const groups = [];
+  if (pHere && pHere.trigger) groups.push({terms: [norm(pHere.trigger)], cls: "span-t"});
+  if (truthOwner) groups.push({terms: [norm(truthOwner.truth)], cls: "span-truth"});
+  return highlightGroups(msg.content, groups);
 }
 
 /* ── запись ── */
@@ -1061,7 +1144,9 @@ async function savePoint() {
     trigger: $("f-trigger").value.trim(), truth: $("f-truth").value.trim(),
     must: splitList($("f-must").value), mustNot: splitList($("f-mustNot").value),
     pattern: $("f-pattern").value.trim() || null,
-    coverage: $("f-coverage").value.trim() || null
+    coverage: $("f-coverage").value.trim() || null,
+    forkType: $("f-forkType").value || null,
+    truthMessageId: parseInt($("f-truth-id").value, 10) > 0 ? parseInt($("f-truth-id").value, 10) : null
   };
   const resp = await post("/api/point" + currentExpParam(), payload);
   flash(resp.error ? "✘ " + resp.error : "✔ точка сохранена: " + payload.id);
@@ -1103,6 +1188,49 @@ function flash(text) {
   el.textContent = text; el.style.display = "block";
   clearTimeout(flashTimer);
   flashTimer = setTimeout(() => el.style.display = "none", 3500);
+}
+
+/* ── фиксация спанов выделением (спека 33 §3: вырезка + анкер, §7-4) ── */
+
+let selCarrier = null;
+function hideSelbar() { $("selbar").style.display = "none"; }
+
+document.addEventListener("mouseup", (e) => {
+  if (e.target.closest("form, input, textarea, select, button, .selbar")) { hideSelbar(); return; }
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) { hideSelbar(); return; }
+  if (String(sel).trim().length < 2) { hideSelbar(); return; }
+  const node = sel.anchorNode
+    ? (sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode) : null;
+  const carrier = node && node.closest("[data-mid]");
+  if (!carrier) { hideSelbar(); return; }
+  selCarrier = { session: carrier.dataset.session, id: parseInt(carrier.dataset.mid, 10) };
+  $("selbarMid").textContent = selCarrier.id;
+  $("selbarMid2").textContent = selCarrier.id;
+  const bar = $("selbar");
+  bar.style.left = Math.min(e.clientX + 8, window.innerWidth - 340) + "px";
+  bar.style.top = Math.max(8, e.clientY - 44) + "px";
+  bar.style.display = "block";
+});
+
+function fixSpan(kind) {
+  const sel = window.getSelection();
+  const text = sel ? String(sel).trim() : "";
+  if (!selCarrier || !text) { hideSelbar(); return; }
+  if (kind === "trigger") {
+    const carrier = msgBy(selCarrier.session, selCarrier.id);
+    if (carrier) selectMsg(selCarrier.session, selCarrier.id);
+    $("f-trigger").value = text;
+    flash(carrier
+      ? `триггер = спан реплики #${selCarrier.id}`
+      : `реплика #${selCarrier.id} не в срезе — M не переключён, спан записан в поле`);
+  } else {
+    $("f-truth").value = text;
+    $("f-truth-id").value = selCarrier.id;
+    flash(`истина = спан реплики #${selCarrier.id} (якорь ${selCarrier.id} в форме)`);
+  }
+  hideSelbar();
+  if (sel) sel.removeAllRanges();
 }
 
 $("windowN").addEventListener("change", () => {
