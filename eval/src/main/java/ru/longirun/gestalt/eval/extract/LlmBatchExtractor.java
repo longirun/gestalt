@@ -34,6 +34,10 @@ public final class LlmBatchExtractor implements FactExtractor {
     }
 
     public ExtractionBatchResult extractWithMetrics(List<RawMessage> batch) {
+        return extractWithMetrics(batch, List.of());
+    }
+
+    public ExtractionBatchResult extractWithMetrics(List<RawMessage> batch, List<String> knownPredicates) {
         if (batch == null || batch.isEmpty()) {
             return new ExtractionBatchResult(List.of(), LlmClient.Usage.ZERO, 0);
         }
@@ -45,23 +49,24 @@ public final class LlmBatchExtractor implements FactExtractor {
                     .append(msg.content()).append("\n");
         }
 
+        String systemPrompt = ExtractionPrompt.buildSystem(knownPredicates);
         long start = System.currentTimeMillis();
         try {
             LlmClient.ChatResult res;
             List<ExtractedFact> facts;
             try {
-                res = llm.chatWithUsage(ExtractionPrompt.SYSTEM, payload.toString());
+                res = llm.chatWithUsage(systemPrompt, payload.toString());
                 facts = parseResponse(res.content());
             } catch (IllegalArgumentException | LlmClient.TruncatedResponseException e) {
                 // greedy-петля локального экстрактора (t=0): один факт тиражируется,
                 // пока ответ не оборвётся посередине JSON; лечится температурным повтором
                 System.err.println("[EXTRACTION RETRY] broken JSON, retrying batch with temperature 0.3: " + e.getMessage());
                 try {
-                    res = llm.chatWithUsage(ExtractionPrompt.SYSTEM, payload.toString(), 0.3);
+                    res = llm.chatWithUsage(systemPrompt, payload.toString(), 0.3);
                     facts = parseResponse(res.content());
                 } catch (IllegalArgumentException | LlmClient.TruncatedResponseException e2) {
                     System.err.println("[EXTRACTION RETRY] still broken, last try with temperature 0.7: " + e2.getMessage());
-                    res = llm.chatWithUsage(ExtractionPrompt.SYSTEM, payload.toString(), 0.7);
+                    res = llm.chatWithUsage(systemPrompt, payload.toString(), 0.7);
                     facts = parseResponse(res.content());
                 }
             }

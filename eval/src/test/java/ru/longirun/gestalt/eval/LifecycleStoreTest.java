@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import ru.longirun.gestalt.eval.store.ExperimentStore;
+import ru.longirun.gestalt.eval.store.FactRepository;
 import ru.longirun.gestalt.eval.store.PointSnapshotStore;
 import ru.longirun.gestalt.eval.store.ResultStore;
 import ru.longirun.gestalt.eval.store.RunStore;
@@ -294,5 +295,28 @@ class LifecycleStoreTest {
         experiments.upsert(SLUG + "_2", "lme", null, "{}", ingestFp, null, "archived", null);
         assertThrows(IllegalStateException.class,
                 () -> Experiments.forReplay(connection, config, points, SLUG + "_2"));
+    }
+
+    @Test
+    void factRepositoryFindKnownPredicates() throws Exception {
+        FactRepository repo = new FactRepository(connection);
+        String testProject = "project:test_predicates_" + UUID.randomUUID();
+        assertTrue(repo.findKnownPredicates(testProject, 200).isEmpty());
+
+        try (Statement st = connection.createStatement()) {
+            st.execute("INSERT INTO facts (owner_id, session_id, project_id, fact_domain, scope, kind, subject_norm, predicate_norm, object_value) VALUES "
+                    + "('user:t', 's1', '" + testProject + "', 'WORLD', 'PROJECT', 'STATE', 'env:test', 'host_ip', '192.0.2.1'),"
+                    + "('user:t', 's1', '" + testProject + "', 'WORLD', 'PROJECT', 'STATE', 'env:test', 'ssh_user', 'deployer'),"
+                    + "('user:t', 's1', '" + testProject + "', 'WORLD', 'PROJECT', 'STATE', 'env:test', 'host_ip', '192.0.2.2')");
+        }
+
+        try {
+            List<String> preds = repo.findKnownPredicates(testProject, 200);
+            assertEquals(List.of("host_ip", "ssh_user"), preds);
+        } finally {
+            try (Statement st = connection.createStatement()) {
+                st.execute("DELETE FROM facts WHERE project_id = '" + testProject + "'");
+            }
+        }
     }
 }

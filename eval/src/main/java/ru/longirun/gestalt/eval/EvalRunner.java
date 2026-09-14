@@ -211,7 +211,7 @@ public final class EvalRunner {
                     for (Work work : works) {
                         if (work.bound() > cursor) {
                             ingest(owner, project, pipeline, extractor, batcher, checkpoints, metrics,
-                                    log, cursor, work.bound(), sessionId);
+                                    log, cursor, work.bound(), sessionId, repo);
                             cursor = work.bound();
                         } else if (work.bound() < cursor) {
                             if (work.w0()) {
@@ -259,7 +259,8 @@ public final class EvalRunner {
     /** Обработка реплик (fromId, toId] тем же конвейером, что в спайке: батч → экстракция → дедуп. */
     private static void ingest(String owner, String project, DedupPipeline pipeline, LlmBatchExtractor extractor,
                                Batcher batcher, CheckpointStore checkpoints, Metrics metrics,
-                               List<RawMessage> log, long fromId, long toId, String sessionId) throws Exception {
+                               List<RawMessage> log, long fromId, long toId, String sessionId,
+                               FactRepository repo) throws Exception {
         List<RawMessage> slice = new ArrayList<>();
         for (RawMessage message : log) {
             if (message.id() > fromId && message.id() <= toId) {
@@ -267,7 +268,8 @@ public final class EvalRunner {
             }
         }
         for (List<RawMessage> batch : batcher.batch(slice)) {
-            LlmBatchExtractor.ExtractionBatchResult res = extractor.extractWithMetrics(batch);
+            List<String> knownPredicates = repo.findKnownPredicates(project, 200);
+            LlmBatchExtractor.ExtractionBatchResult res = extractor.extractWithMetrics(batch, knownPredicates);
             metrics.llmCalls++;
             metrics.promptTokens += res.usage().promptTokens();
             metrics.completionTokens += res.usage().completionTokens();

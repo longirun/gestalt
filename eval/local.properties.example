@@ -48,3 +48,6 @@ portrait.project=project:jrestly
 # Датасет точек: рабочий файл разметки E2 (план 31 §2.5) — eval/data, вне VCS;
 # example — для отладки стадий E3-E5
 dataset.file=data/points.live.jsonl
+
+# Тест чистоты системного промпта: список токенов через запятую
+# test.prompt.forbidden-tokens=secret1, secret2

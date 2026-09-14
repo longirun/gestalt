@@ -220,6 +220,51 @@ public final class FactRepository {
         }
     }
 
+    /**
+     * Выборка словаря предикатов проекта (Р25, write-time feedback):
+     * объединение Top-150 по частоте + 50 самых свежих («ясли»).
+     * До 200 предикатов гарантированно возвращаются все.
+     */
+    public List<String> findKnownPredicates(String projectId, int limit) throws SQLException {
+        if (projectId == null || projectId.isBlank()) {
+            return List.of();
+        }
+        String normProject = ExactMatcher.normalize(projectId);
+        int topLimit = Math.max(1, (int) (limit * 0.75));
+        int recentLimit = Math.max(1, limit - topLimit);
+
+        String sql = """
+                (SELECT predicate_norm
+                 FROM facts
+                 WHERE project_id = ? AND predicate_norm IS NOT NULL AND predicate_norm <> ''
+                 GROUP BY predicate_norm
+                 ORDER BY count(*) DESC
+                 LIMIT ?)
+                UNION
+                (SELECT predicate_norm
+                 FROM facts
+                 WHERE project_id = ? AND predicate_norm IS NOT NULL AND predicate_norm <> ''
+                 GROUP BY predicate_norm
+                 ORDER BY max(created_at) DESC
+                 LIMIT ?)
+                ORDER BY predicate_norm ASC
+                """;
+
+        List<String> list = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, normProject);
+            ps.setInt(2, topLimit);
+            ps.setString(3, normProject);
+            ps.setInt(4, recentLimit);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(rs.getString(1));
+                }
+            }
+        }
+        return list;
+    }
+
     private StoredFact mapRow(ResultSet rs) throws SQLException {
         return new StoredFact(
                 rs.getObject("id", UUID.class),
