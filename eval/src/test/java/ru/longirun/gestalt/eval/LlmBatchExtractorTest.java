@@ -64,6 +64,52 @@ class LlmBatchExtractorTest {
     }
 
     @Test
+    void cleansProseBeforeFencedJson() {
+        String prosePrefixed = """
+                Based on the messages, here are the extracted facts:
+
+                ```json
+                [
+                  {
+                    "kind": "STATE",
+                    "subject": "project:stock",
+                    "predicate": "build_tool",
+                    "object": "gradle",
+                    "domain": "WORLD",
+                    "scope": "PROJECT"
+                  }
+                ]
+                ```
+                """;
+
+        List<ExtractedFact> facts = LlmBatchExtractor.parseResponse(prosePrefixed);
+        assertEquals(1, facts.size());
+        assertEquals("gradle", facts.getFirst().object());
+    }
+
+    @Test
+    void cleansProseAroundBareJson() {
+        String prose = """
+                Based on my analysis of the batch, the facts are:
+                [
+                  {
+                    "kind": "STATE",
+                    "subject": "project:stock",
+                    "predicate": "build_tool",
+                    "object": "gradle",
+                    "domain": "WORLD",
+                    "scope": "PROJECT"
+                  }
+                ]
+                Let me know if you need more details.
+                """;
+
+        List<ExtractedFact> facts = LlmBatchExtractor.parseResponse(prose);
+        assertEquals(1, facts.size());
+        assertEquals("gradle", facts.getFirst().object());
+    }
+
+    @Test
     void parsesFactsWrappedInObject() {
         String wrapped = """
                 {
