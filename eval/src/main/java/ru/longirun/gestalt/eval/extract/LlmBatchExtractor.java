@@ -177,15 +177,31 @@ public final class LlmBatchExtractor implements FactExtractor {
 
     private static String cleanCodeFences(String response) {
         String s = response.trim();
-        if (s.startsWith("```")) {
-            int firstNewline = s.indexOf('\n');
+
+        // fence в любом месте: берём содержимое между первым fence-тегом и закрывающим ```
+        int fenceStart = s.indexOf("```");
+        if (fenceStart >= 0) {
+            int firstNewline = s.indexOf('\n', fenceStart);
             if (firstNewline != -1) {
-                s = s.substring(firstNewline + 1);
-            }
-            if (s.endsWith("```")) {
-                s = s.substring(0, s.length() - 3);
+                int fenceEnd = s.indexOf("```", firstNewline + 1);
+                String inside = fenceEnd != -1
+                        ? s.substring(firstNewline + 1, fenceEnd)
+                        : s.substring(firstNewline + 1);
+                if (inside.contains("[") || inside.contains("{")) {
+                    return inside.trim();
+                }
             }
         }
-        return s.trim();
+
+        // проза вокруг голого JSON: вырезаем внешнее значение ([...] или {...})
+        int arrayStart = s.indexOf('[');
+        int objectStart = s.indexOf('{');
+        if (arrayStart < 0 && objectStart < 0) {
+            return s;
+        }
+        boolean arrayFirst = arrayStart >= 0 && (objectStart < 0 || arrayStart < objectStart);
+        int start = arrayFirst ? arrayStart : objectStart;
+        int end = s.lastIndexOf(arrayFirst ? ']' : '}');
+        return end > start ? s.substring(start, end + 1) : s;
     }
 }
