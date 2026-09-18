@@ -62,9 +62,9 @@ public final class RunStore {
                 + " llm_calls = ?, prompt_tokens = ?, completion_tokens = ? WHERE id = ?";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, status);
-            setNullableLong(ps, 2, llmCalls);
-            setNullableLong(ps, 3, promptTokens);
-            setNullableLong(ps, 4, completionTokens);
+            Sql.setNullableLong(ps, 2, llmCalls);
+            Sql.setNullableLong(ps, 3, promptTokens);
+            Sql.setNullableLong(ps, 4, completionTokens);
             ps.setLong(5, runId);
             ps.executeUpdate();
         }
@@ -96,8 +96,8 @@ public final class RunStore {
                 while (rs.next()) {
                     rows.add(new RunRow(
                             rs.getLong("id"), rs.getString("experiment"), rs.getString("stage"),
-                            rs.getString("status"), getNullableLong(rs, "llm_calls"),
-                            getNullableLong(rs, "prompt_tokens"), getNullableLong(rs, "completion_tokens"),
+                            rs.getString("status"), Sql.getNullableLong(rs, "llm_calls"),
+                            Sql.getNullableLong(rs, "prompt_tokens"), Sql.getNullableLong(rs, "completion_tokens"),
                             rs.getObject("started_at", OffsetDateTime.class),
                             rs.getObject("finished_at", OffsetDateTime.class), rs.getString("note")));
                 }
@@ -143,16 +143,4 @@ public final class RunStore {
         }
     }
 
-    private static void setNullableLong(PreparedStatement ps, int index, Long value) throws SQLException {
-        if (value == null) {
-            ps.setNull(index, java.sql.Types.BIGINT);
-        } else {
-            ps.setLong(index, value);
-        }
-    }
-
-    private static Long getNullableLong(ResultSet rs, String column) throws SQLException {
-        long value = rs.getLong(column);
-        return rs.wasNull() ? null : value;
-    }
 }

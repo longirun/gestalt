@@ -15,11 +15,11 @@ import java.util.List;
  */
 public final class ResultStore {
 
-    /** Ответ плеча: поля контракта answers (план 31 §3). */
+    /** Ответ плеча: поля контракта answers (план 31 §3); point_fp — валидность строки (Fingerprints.pointFp). */
     public record AnswerRow(
-            String pointId, String arm, String answer, String model,
+            String pointId, String arm, String pointFp, String answer, String model,
             Long tokens, Long promptTokens, Long completionTokens,
-            Long latencyMs, boolean cached, Long runId, OffsetDateTime at) {
+            Long latencyMs, Long runId, OffsetDateTime at) {
     }
 
     public record VerdictRow(String pointId, String payloadJson) {
@@ -34,31 +34,32 @@ public final class ResultStore {
         this.connection = connection;
     }
 
-    public void upsertAnswer(String experiment, String pointId, String arm, String answer,
+    public void upsertAnswer(String experiment, String pointId, String arm, String pointFp, String answer,
                              String model, Long tokens, Long promptTokens, Long completionTokens,
-                             Long latencyMs, boolean cached, Long runId, OffsetDateTime at) throws SQLException {
+                             Long latencyMs, Long runId, OffsetDateTime at) throws SQLException {
         String sql = """
-                INSERT INTO answers (experiment, point_id, arm, answer, model, tokens,
-                                     prompt_tokens, completion_tokens, latency_ms, cached, run_id, at)
+                INSERT INTO answers (experiment, point_id, arm, point_fp, answer, model, tokens,
+                                     prompt_tokens, completion_tokens, latency_ms, run_id, at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (experiment, point_id, arm)
-                DO UPDATE SET answer = EXCLUDED.answer, model = EXCLUDED.model,
-                              tokens = EXCLUDED.tokens, prompt_tokens = EXCLUDED.prompt_tokens,
+                DO UPDATE SET point_fp = EXCLUDED.point_fp, answer = EXCLUDED.answer,
+                              model = EXCLUDED.model, tokens = EXCLUDED.tokens,
+                              prompt_tokens = EXCLUDED.prompt_tokens,
                               completion_tokens = EXCLUDED.completion_tokens,
-                              latency_ms = EXCLUDED.latency_ms, cached = EXCLUDED.cached,
+                              latency_ms = EXCLUDED.latency_ms,
                               run_id = EXCLUDED.run_id, at = EXCLUDED.at
                 """;
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, experiment);
             ps.setString(2, pointId);
             ps.setString(3, arm);
-            ps.setString(4, answer);
-            ps.setString(5, model);
-            setNullableLong(ps, 6, tokens);
-            setNullableLong(ps, 7, promptTokens);
-            setNullableLong(ps, 8, completionTokens);
-            setNullableLong(ps, 9, latencyMs);
-            ps.setBoolean(10, cached);
+            ps.setString(4, pointFp);
+            ps.setString(5, answer);
+            ps.setString(6, model);
+            Sql.setNullableLong(ps, 7, tokens);
+            Sql.setNullableLong(ps, 8, promptTokens);
+            Sql.setNullableLong(ps, 9, completionTokens);
+            Sql.setNullableLong(ps, 10, latencyMs);
             if (runId == null) {
                 ps.setNull(11, java.sql.Types.BIGINT);
             } else {
@@ -110,11 +111,23 @@ public final class ResultStore {
         }
     }
 
+    /**
+     * Снос всех ответов эксперимента (§7.2 rewrite): ответы чужого answer_fp не имеют права
+     * оставаться — lift/проценты считаются по смешению поколений. Возвращает число удалённых строк.
+     */
+    public int deleteAnswers(String experiment) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "DELETE FROM answers WHERE experiment = ?")) {
+            ps.setString(1, experiment);
+            return ps.executeUpdate();
+        }
+    }
+
     /** Все ответы эксперимента, отсортированные по (point_id, arm). */
     public List<AnswerRow> answers(String experiment) throws SQLException {
         String sql = """
-                SELECT point_id, arm, answer, model, tokens, prompt_tokens, completion_tokens,
-                       latency_ms, cached, run_id, at
+                SELECT point_id, arm, point_fp, answer, model, tokens, prompt_tokens, completion_tokens,
+                       latency_ms, run_id, at
                 FROM answers WHERE experiment = ? ORDER BY point_id, arm
                 """;
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -123,11 +136,12 @@ public final class ResultStore {
                 List<AnswerRow> rows = new ArrayList<>();
                 while (rs.next()) {
                     rows.add(new AnswerRow(
-                            rs.getString("point_id"), rs.getString("arm"), rs.getString("answer"),
-                            rs.getString("model"), getNullableLong(rs, "tokens"),
-                            getNullableLong(rs, "prompt_tokens"), getNullableLong(rs, "completion_tokens"),
-                            getNullableLong(rs, "latency_ms"), rs.getBoolean("cached"),
-                            getNullableLong(rs, "run_id"), rs.getObject("at", OffsetDateTime.class)));
+                            rs.getString("point_id"), rs.getString("arm"), rs.getString("point_fp"),
+                            rs.getString("answer"), rs.getString("model"),
+                            Sql.getNullableLong(rs, "tokens"),
+                            Sql.getNullableLong(rs, "prompt_tokens"), Sql.getNullableLong(rs, "completion_tokens"),
+                            Sql.getNullableLong(rs, "latency_ms"),
+                            Sql.getNullableLong(rs, "run_id"), rs.getObject("at", OffsetDateTime.class)));
                 }
                 return rows;
             }
@@ -162,16 +176,4 @@ public final class ResultStore {
         }
     }
 
-    private static void setNullableLong(PreparedStatement ps, int index, Long value) throws SQLException {
-        if (value == null) {
-            ps.setNull(index, java.sql.Types.BIGINT);
-        } else {
-            ps.setLong(index, value);
-        }
-    }
-
-    private static Long getNullableLong(ResultSet rs, String column) throws SQLException {
-        long value = rs.getLong(column);
-        return rs.wasNull() ? null : value;
-    }
 }

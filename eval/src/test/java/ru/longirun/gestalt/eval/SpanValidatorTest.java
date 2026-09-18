@@ -10,9 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Спан-инварианты И1–И3 (спека 33 §4): trigger ⊆ реплика M, truth ⊆ реплика-якорь,
+ * Спан-инварианты И1–И3, И5 (спека 33 §4): trigger ⊆ реплика M, truth ⊆ реплика-якорь,
  * маркеры ветви вне (W0, M] (W0 исключён — инжестируется в память; M включён — giveaway),
- * якорь истины строго после M. Вердикты ok/span-miss/in-window/causality/unanchored/skip.
+ * mustNot не матчится внутри must, якорь истины строго после M.
+ * Вердикты ok/span-miss/in-window/marker-collision/causality/unanchored/skip.
  * Лог: id 1..12, M = 10 (idx 9), окно N = 3 → реплики 7..10, W0 = 6.
  */
 class SpanValidatorTest {
@@ -41,7 +42,12 @@ class SpanValidatorTest {
     }
 
     private static EvalPoint l1(String trigger, String truth, List<String> must, Long truthMessageId) {
-        return new EvalPoint("P", "L1", "s", 10, trigger, truth, must, List.of(),
+        return l1(trigger, truth, must, List.of(), truthMessageId);
+    }
+
+    private static EvalPoint l1(String trigger, String truth, List<String> must, List<String> mustNot,
+                                Long truthMessageId) {
+        return new EvalPoint("P", "L1", "s", 10, trigger, truth, must, mustNot,
                 "pattern", "coverage", "tech-choice", truthMessageId);
     }
 
@@ -141,6 +147,23 @@ class SpanValidatorTest {
 
         assertEquals(SpanValidator.OK, check(l1("заполнение 10", "заполнение 12",
                 List.of("docker"), 12L), log).status());
+    }
+
+    @Test
+    void mustNotInsideMustIsMarkerCollision() {
+        // живой кейс project-v3: must «types-with-counts» содержит «counts» на границе
+        // слов — любой ответ с must триггерит mustNot, pass недостижим
+        var verdict = check(l1("заполнение 10", "заполнение 12",
+                List.of("types-with-counts"), List.of("counts"), 12L), baseLog());
+        assertEquals(SpanValidator.MARKER_COLLISION, verdict.status());
+        assertTrue(verdict.details().get(0).contains("counts"), verdict.details().toString());
+    }
+
+    @Test
+    void mustNotSupersetOfMustIsNotCollision() {
+        // «typeId» внутри «resolvedTypeId» не на границе слов — коллизии нет
+        assertEquals(SpanValidator.OK, check(l1("заполнение 10", "заполнение 12",
+                List.of("typeId"), List.of("resolvedTypeId"), 12L), baseLog()).status());
     }
 
     @Test

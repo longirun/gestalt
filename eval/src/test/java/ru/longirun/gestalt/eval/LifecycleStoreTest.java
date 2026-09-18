@@ -82,13 +82,13 @@ class LifecycleStoreTest {
                         experiment        TEXT NOT NULL REFERENCES experiments(slug) ON DELETE CASCADE,
                         point_id          TEXT NOT NULL,
                         arm               TEXT NOT NULL CHECK (arm IN ('a','b')),
+                        point_fp          TEXT,
                         answer            TEXT NOT NULL,
                         model             TEXT,
                         tokens            BIGINT,
                         prompt_tokens     BIGINT,
                         completion_tokens BIGINT,
                         latency_ms        BIGINT,
-                        cached            BOOLEAN NOT NULL DEFAULT FALSE,
                         run_id            BIGINT REFERENCES runs(id) ON DELETE CASCADE,
                         at                TIMESTAMPTZ NOT NULL DEFAULT now(),
                         PRIMARY KEY (experiment, point_id, arm))
@@ -172,17 +172,20 @@ class LifecycleStoreTest {
         runs.finish(runId, "done");
         assertEquals("done", runs.list(SLUG).getFirst().status());
 
-        results.upsertAnswer(SLUG, "P1", "a", "ответ A", "m", 10L, 7L, 3L, 120L, false, runId,
+        results.upsertAnswer(SLUG, "P1", "a", "pf-p1", "ответ A", "m", 10L, 7L, 3L, 120L, runId,
                 OffsetDateTime.now());
-        results.upsertAnswer(SLUG, "P1", "b", "ответ B", "m", 11L, 8L, 3L, 100L, false, runId,
+        results.upsertAnswer(SLUG, "P1", "b", "pf-p1", "ответ B", "m", 11L, 8L, 3L, 100L, runId,
                 OffsetDateTime.now());
         // перезапись ответа тем же ключом — upsert, не дубль
-        results.upsertAnswer(SLUG, "P1", "a", "ответ A v2", "m2", 12L, 8L, 4L, 90L, true, runId,
+        results.upsertAnswer(SLUG, "P1", "a", "pf-p1v2", "ответ A v2", "m2", 12L, 8L, 4L, 90L, runId,
                 OffsetDateTime.now());
         List<ResultStore.AnswerRow> answers = results.answers(SLUG);
         assertEquals(2, answers.size());
         assertEquals("ответ A v2", answers.stream()
                 .filter(r -> r.arm().equals("a")).findFirst().orElseThrow().answer());
+        assertEquals("pf-p1v2", answers.stream()
+                .filter(r -> r.arm().equals("a")).findFirst().orElseThrow().pointFp(),
+                "перезапись строки нового поколения обновляет и point_fp");
 
         results.upsertVerdict(SLUG, "P1", true, false, false,
                 "{\"pointId\":\"P1\",\"a\":{\"pass\":true},\"b\":{\"pass\":false}}");
@@ -232,13 +235,13 @@ class LifecycleStoreTest {
 
         long run1 = runs.start(SLUG, "replay", "первый");
         long run2 = runs.start(SLUG, "arms", "перезапишет часть");
-        results.upsertAnswer(SLUG, "P9", "a", "A v1", "m", 1L, 1L, 1L, 1L, false, run1, OffsetDateTime.now());
-        results.upsertAnswer(SLUG, "P9", "b", "B v1", "m", 1L, 1L, 1L, 1L, false, run1, OffsetDateTime.now());
+        results.upsertAnswer(SLUG, "P9", "a", "pf-p9", "A v1", "m", 1L, 1L, 1L, 1L, run1, OffsetDateTime.now());
+        results.upsertAnswer(SLUG, "P9", "b", "pf-p9", "B v1", "m", 1L, 1L, 1L, 1L, run1, OffsetDateTime.now());
         snapshots.upsert(SLUG, "P9", "m", "{\"v\":1}", run1);
         snapshots.upsert(SLUG, "P9", "w0", "{\"v\":1}", run1);
 
         // run2 перезаписывает ответ A и M-слепок (run_id авторства переходит к run2)
-        results.upsertAnswer(SLUG, "P9", "a", "A v2", "m", 2L, 2L, 2L, 2L, false, run2, OffsetDateTime.now());
+        results.upsertAnswer(SLUG, "P9", "a", "pf-p9", "A v2", "m", 2L, 2L, 2L, 2L, run2, OffsetDateTime.now());
         snapshots.upsert(SLUG, "P9", "m", "{\"v\":2}", run2);
 
         assertTrue(snapshots.exists(SLUG, "P9", "w0"));

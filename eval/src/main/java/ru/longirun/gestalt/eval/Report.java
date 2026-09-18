@@ -118,6 +118,12 @@ public final class Report {
         }
 
         Stats s = stats(verdicts);
+        // n=0 (тотальный leak-veto) не рождает отчёт: проценты дали бы NaN,
+        // а нули ложно читались бы как «обе руки провалили всё»
+        if (s.n() == 0) {
+            throw new IllegalStateException(("эксперимент '%s': все %d точек ушли в C-leak veto (veto Р36) — "
+                    + "выборка для lift пуста, проверь C-точки и их слепки").formatted(experiment, s.leaks()));
+        }
         double p = mcnemarExact(s.bOnly(), s.aOnly());
         double lift = s.n() == 0 ? 0 : (double) (s.aPass() - s.bPass()) / s.n();
         String verdict = (lift > 0 && p < 0.05) ? "lift > 0 статистически значим (α=0.05)"

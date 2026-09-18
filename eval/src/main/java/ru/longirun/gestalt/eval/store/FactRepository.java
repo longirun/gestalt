@@ -213,13 +213,6 @@ public final class FactRepository {
         return list;
     }
 
-    public int countFacts() throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement("SELECT count(*) FROM facts");
-             ResultSet rs = ps.executeQuery()) {
-            return rs.next() ? rs.getInt(1) : 0;
-        }
-    }
-
     /**
      * Выборка словаря предикатов проекта (Р25, write-time feedback):
      * объединение Top-150 по частоте + 50 самых свежих («ясли»).

@@ -22,8 +22,8 @@ import java.util.Set;
  * Стадия E3 — плечи A/B (ADR 28 §3.3): оба плеча отвечают на триггер M с идентичным
  * видимым контекстом — окном (W0, M) + вопросом; плечо A дополнительно получает дайджест
  * PortraitSnapshot в системном промпте, B — контроль без памяти. Одинаковая модель
- * (llm.answer.* с fallback на llm.*), temperature 0. Канон ответов — gestalt_eval.answers
- * (§7 writer: {answer, model, tokens, latencyMs, cached, at, promptTokens, completionTokens});
+ * (llm.answer.* — резолвнутые значения, см. EvalConfig.load), temperature 0. Канон ответов — gestalt_eval.answers
+ * (§7 writer: {answer, model, tokens, latencyMs, at, promptTokens, completionTokens});
  * существующие пары в PG не перегенерируются — кэш плеч замораживается (ADR 28),
  * пока answer_fp не сменился.
  */
@@ -126,8 +126,10 @@ public final class Arms {
     /**
      * Прогон плеч по точкам датасета: `arms [limit]` — limit = сколько новых пар сгенерировать
      * (0/отсутствие = все). Writer-проход §7: канон ответов — gestalt_eval.answers;
-     * заморозка кэша = пара (a,b) в PG. Смена answer_fp (§7.2) — полная перезапись
-     * ответов новым run (слепки переиспользуются).
+     * заморозка кэша = пара (a,b) в PG с совпавшим point_fp (answer_fp + trigger +
+     * позиция точки). Смена answer_fp (§7.2) — полная перезапись
+     * ответов новым run: старые answers эксперимента сносятся до цикла (слепки
+     * переиспользуются); точки без слепка/окна остаются без ответа до появления грида.
      * Прогон оборачивается в run: экономика (llm_calls, токены плеч) видна в runs.
      */
     public static void run(EvalConfig config, int limit) throws Exception {
@@ -135,9 +137,9 @@ public final class Arms {
             throw new IllegalStateException("llm.api-key required: arms без LLM бессмысленны");
         }
         LlmClient client = new LlmClient(
-                config.llmAnswerBaseUrl().isBlank() ? config.llmBaseUrl() : config.llmAnswerBaseUrl(),
-                config.llmAnswerApiKey().isBlank() ? config.llmApiKey() : config.llmAnswerApiKey(),
-                config.llmAnswerModel().isBlank() ? config.llmModel() : config.llmAnswerModel(),
+                config.llmAnswerBaseUrl(),
+                config.llmAnswerApiKey(),
+                config.llmAnswerModel(),
                 config.llmAnswerReasoningEffort());
         List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(config.datasetFile()));
         String answerFp = Fingerprints.answerFp(config);
@@ -165,7 +167,7 @@ public final class Arms {
                         exp.ingestFp(), answerFp, exp.status(), exp.note());
                 System.out.printf("[ARMS] answer_fp сменился (%s ≠ %s): полная перезапись ответов новым run, "
                                 + "слепки переиспользуются (§7.2)%n",
-                        shortFp(exp.answerFp()), shortFp(answerFp));
+                        Fingerprints.shortFp(exp.answerFp()), Fingerprints.shortFp(answerFp));
             }
 
             int stale = runs.interruptStale(experiment, "arms");
@@ -176,11 +178,33 @@ public final class Arms {
                     rewrite ? "перезапись ответов: answer_fp сменился" : "ответы → answers (PG) + дамп out/");
 
             try {
-                // кэш плеч (заморозка): точки с парой (a,b) в PG эксперимента
+                // кэш плеч (заморозка) нужен только без rewrite: при rewrite старые ответы
+                // сносятся до цикла целиком — иначе skipped-точки и хвост limit оставили бы
+                // ответы прежнего answer_fp, а упавший прогон сделал бы их «валидным кэшем»
                 Map<String, Set<String>> armsByPoint = new java.util.LinkedHashMap<>();
-                for (ResultStore.AnswerRow row : results.answers(experiment)) {
-                    armsByPoint.computeIfAbsent(row.pointId(), k -> new java.util.HashSet<>()).add(row.arm());
+                Map<String, EvalPoint> pointById = new java.util.HashMap<>();
+                for (EvalPoint p : points) {
+                    pointById.put(p.id(), p);
                 }
+                if (rewrite) {
+                    int purged = results.deleteAnswers(experiment);
+                    System.out.printf("[ARMS] rewrite: удалено %d ответов прежнего answer_fp (§7.2)%n", purged);
+                } else {
+                    // валидность строки = её точка есть в датасете и point_fp совпал
+                    // (answer_fp + trigger + позиция): правка trigger в разметке не
+                    // оставляет старый ответ молча валидным; осиротевшие строки и чужие
+                    // fp исключаются, ниже они перезапишутся или уйдут с rewrite
+                    for (ResultStore.AnswerRow row : results.answers(experiment)) {
+                        EvalPoint p = pointById.get(row.pointId());
+                        if (p == null || row.pointFp() == null
+                                || !row.pointFp().equals(Fingerprints.pointFp(answerFp, p))) {
+                            continue;
+                        }
+                        armsByPoint.computeIfAbsent(row.pointId(), k -> new java.util.HashSet<>()).add(row.arm());
+                    }
+                }
+
+                Map<String, List<RawMessage>> logBySession = new java.util.LinkedHashMap<>();
 
                 for (EvalPoint point : points) {
                     if (limit > 0 && generated >= limit) {
@@ -197,8 +221,8 @@ public final class Arms {
                         System.out.printf("[ARMS] point %s: no snapshot in PG, skipped (run replay first)%n", point.id());
                         continue;
                     }
-                    List<RawMessage> log = readLog(config, point);
-                    int idxM = indexOf(log, point.sourceMessageId());
+                    List<RawMessage> log = EvalRunner.sessionLog(logBySession, config, point.sourceSession());
+                    int idxM = EvalRunner.indexOfMessage(log, point.sourceMessageId());
                     if (idxM < 0) {
                         skipped++;
                         System.out.printf("[ARMS] point %s: message %d outside the log, skipped%n",
@@ -233,8 +257,9 @@ public final class Arms {
                     completionTokens += a.usage().completionTokens() + (long) b.usage().completionTokens();
 
                     OffsetDateTime at = OffsetDateTime.now();
-                    persist(results, experiment, point.id(), "a", a, client.model(), aLatency, runId, at);
-                    persist(results, experiment, point.id(), "b", b, client.model(), bLatency, runId, at);
+                    String pointFp = Fingerprints.pointFp(answerFp, point);
+                    persist(results, experiment, point.id(), "a", pointFp, a, client.model(), aLatency, runId, at);
+                    persist(results, experiment, point.id(), "b", pointFp, b, client.model(), bLatency, runId, at);
                     generated++;
                 }
                 runs.finish(runId, "done", llmCalls, promptTokens, completionTokens);
@@ -251,28 +276,11 @@ public final class Arms {
 
     /** Канон — answers в PG (§7). */
     private static void persist(ResultStore results, String experiment,
-                                 String pointId, String arm, LlmClient.ChatResult result, String model,
-                                 long latencyMs, long runId, OffsetDateTime at) throws Exception {
-        results.upsertAnswer(experiment, pointId, arm, result.content(), model,
+                                String pointId, String arm, String pointFp, LlmClient.ChatResult result, String model,
+                                long latencyMs, long runId, OffsetDateTime at) throws Exception {
+        results.upsertAnswer(experiment, pointId, arm, pointFp, result.content(), model,
                 (long) result.usage().totalTokens(), (long) result.usage().promptTokens(),
-                (long) result.usage().completionTokens(), latencyMs, false, runId, at);
+                (long) result.usage().completionTokens(), latencyMs, runId, at);
     }
 
-    /** Короткая форма fp для диагностики (полный — 64 hex-символа). */
-    private static String shortFp(String fp) {
-        return fp == null || fp.length() <= 12 ? "null" : fp.substring(0, 12);
-    }
-
-    private static List<RawMessage> readLog(EvalConfig config, EvalPoint point) throws Exception {
-        return EvalRunner.readLog(config, point.sourceSession());
-    }
-
-    private static int indexOf(List<RawMessage> log, long id) {
-        for (int i = 0; i < log.size(); i++) {
-            if (log.get(i).id() == id) {
-                return i;
-            }
-        }
-        return -1;
-    }
 }

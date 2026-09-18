@@ -26,10 +26,6 @@ public final class LlmClient {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    public LlmClient(String baseUrl, String apiKey, String model) {
-        this(baseUrl, apiKey, model, "");
-    }
-
     public LlmClient(String baseUrl, String apiKey, String model, String reasoningEffort) {
         this.baseUrl = baseUrl;
         this.apiKey = apiKey;
@@ -57,10 +53,6 @@ public final class LlmClient {
     }
 
     public record ChatResult(String content, Usage usage) {
-    }
-
-    public String chat(String systemPrompt, String userPayload) throws Exception {
-        return chatWithUsage(systemPrompt, userPayload).content();
     }
 
     public ChatResult chatWithUsage(String systemPrompt, String userPayload) throws Exception {

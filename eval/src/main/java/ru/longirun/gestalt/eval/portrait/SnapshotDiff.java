@@ -46,15 +46,21 @@ public final class SnapshotDiff {
                     UUID id = UUID.fromString(fact.path("id").asText());
                     index.put(id, new FactRef(
                             id, section,
-                            fact.path("subject").asText(null),
-                            fact.path("predicate").asText(null),
-                            fact.path("object").asText(null),
-                            fact.path("statement").asText(null)));
+                            textOrNull(fact.path("subject")),
+                            textOrNull(fact.path("predicate")),
+                            textOrNull(fact.path("object")),
+                            textOrNull(fact.path("statement"))));
                 }
             }
         } catch (Exception e) {
             throw new IllegalArgumentException("failed to parse snapshot: " + e.getMessage(), e);
         }
         return index;
+    }
+
+    // NullNode.asText() возвращает строку "null" (а не null): JSON-null и отсутствующие
+    // поля обязаны становиться null, иначе литерал "null" утекает в haystack WCheck и отчёты
+    private static String textOrNull(JsonNode node) {
+        return node.isTextual() ? node.textValue() : null;
     }
 }

@@ -1,5 +1,8 @@
 package ru.longirun.gestalt.eval;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import ru.longirun.gestalt.eval.dedup.DedupPipeline;
 import ru.longirun.gestalt.eval.dedup.NearDupMatcher;
 import ru.longirun.gestalt.eval.extract.LlmBatchExtractor;
@@ -28,9 +31,11 @@ import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -77,9 +82,9 @@ public final class EvalRunner {
         Path out = EvalPaths.evalDir().resolve("data/candidates.jsonl");
         Files.createDirectories(out.getParent());
         StringBuilder sb = new StringBuilder();
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        ObjectMapper mapper = new ObjectMapper();
         for (RawMessage m : log) {
-            com.fasterxml.jackson.databind.node.ObjectNode node = mapper.createObjectNode();
+            ObjectNode node = mapper.createObjectNode();
             node.put("id", m.id());
             node.put("session", m.sessionName());
             node.put("peer", m.peerName());
@@ -104,7 +109,7 @@ public final class EvalRunner {
     private static void runValidate(EvalConfig config, String[] args) throws Exception {
         String dataset = args.length > 1 && !args[1].isBlank() ? args[1] : config.datasetFile();
         List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(dataset));
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        ObjectMapper mapper = new ObjectMapper();
 
         Map<String, Integer> counts = new LinkedHashMap<>();
         StringBuilder journal = new StringBuilder();
@@ -203,7 +208,7 @@ public final class EvalRunner {
                     String owner = portraitOwner(config, sourceSession);
                     String project = portraitProject(config, sourceSession);
                     List<EvalPoint> sessionPoints = entry.getValue().stream()
-                            .sorted(java.util.Comparator.comparingLong(EvalPoint::sourceMessageId))
+                            .sorted(Comparator.comparingLong(EvalPoint::sourceMessageId))
                             .toList();
                     List<RawMessage> log = readLog(config, sourceSession);
                     if (log.isEmpty()) {
@@ -253,7 +258,7 @@ public final class EvalRunner {
                             works.add(new Work(prevId, 1, point, false));
                         }
                     }
-                    works.sort(java.util.Comparator.comparingLong(Work::bound)
+                    works.sort(Comparator.comparingLong(Work::bound)
                             .thenComparingInt(Work::tieBreak));
 
                     for (Work work : works) {
@@ -339,7 +344,7 @@ public final class EvalRunner {
         return idxM > windowSize ? log.get(idxM - windowSize - 1).id() : -1;
     }
 
-    private static int indexOfMessage(List<RawMessage> log, long id) {
+    static int indexOfMessage(List<RawMessage> log, long id) {
         for (int i = 0; i < log.size(); i++) {
             if (log.get(i).id() == id) {
                 return i;
@@ -363,7 +368,7 @@ public final class EvalRunner {
     private static void runWCheck(EvalConfig config, String[] args) throws Exception {
         String only = args.length > 1 ? args[1] : "";
         List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(config.datasetFile()));
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        ObjectMapper mapper = new ObjectMapper();
 
         int checked = 0;
         int answerCovered = 0;
@@ -407,6 +412,8 @@ public final class EvalRunner {
                     evidenceByProject.put(e.getKey(), evidence);
                 }
 
+                Map<String, List<RawMessage>> logBySession = new LinkedHashMap<>();
+
                 for (EvalPoint point : points) {
                     if (!only.isEmpty() && !point.id().equals(only)) {
                         continue;
@@ -421,7 +428,7 @@ public final class EvalRunner {
                         recordInsufficient(results, experiment, point.id(), mapper, "insufficient-grid");
                         continue;
                     }
-                    List<RawMessage> log = readLog(config, point.sourceSession());
+                    List<RawMessage> log = sessionLog(logBySession, config, point.sourceSession());
                     int idxM = indexOfMessage(log, point.sourceMessageId());
                     long w0 = idxM >= 0 ? windowStartId(log, idxM, config.windowSize()) : -1;
                     if (w0 < 0) {
@@ -433,8 +440,8 @@ public final class EvalRunner {
                             evidenceByProject.get(portraitProject(config, point.sourceSession()));
                     WCheck.PointReport report = WCheck.check(point.id(), point.must(),
                             mJson, w0, point.sourceMessageId(),
-                            factId -> evidence == null ? List.of() : evidence.getOrDefault(factId, List.of()));
-                    com.fasterxml.jackson.databind.node.ObjectNode node = mapper.valueToTree(report);
+                            factId -> evidence.getOrDefault(factId, List.of()));
+                    ObjectNode node = mapper.valueToTree(report);
                     node.put("status", report.covered() ? "covered" : "not-covered");
                     String payload = mapper.writeValueAsString(node);
                     results.upsertWCheck(experiment, point.id(), report.covered(), report.answerCovered(), payload);
@@ -461,7 +468,7 @@ public final class EvalRunner {
     }
 
     private static void recordInsufficient(ResultStore results, String experiment, String pointId,
-                                           com.fasterxml.jackson.databind.ObjectMapper mapper,
+                                           ObjectMapper mapper,
                                            String status) throws Exception {
         String payload = mapper.writeValueAsString(Map.of("pointId", pointId, "status", status));
         results.upsertWCheck(experiment, pointId, null, null, payload);
@@ -480,8 +487,8 @@ public final class EvalRunner {
             throw new IllegalStateException("source.lme.file required in local.properties");
         }
         LongMemEvalAdapter adapter = new LongMemEvalAdapter(EvalPaths.resolve(config.sourceLmeFile()));
-        List<EvalPoint> points = LmePoints.convert(adapter, java.util.Set.of(typesCsv.split(",")), limit, config.windowSize());
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        List<EvalPoint> points = LmePoints.convert(adapter, Set.of(typesCsv.split(",")), limit, config.windowSize());
+        ObjectMapper mapper = new ObjectMapper();
         StringBuilder sb = new StringBuilder();
         for (EvalPoint point : points) {
             sb.append(mapper.writeValueAsString(point)).append('\n');
@@ -565,7 +572,7 @@ public final class EvalRunner {
             bySession.computeIfAbsent(point.sourceSession(), s -> new ArrayList<>()).add(point);
         }
         bySession.values().forEach(list ->
-                list.sort(java.util.Comparator.comparingLong(EvalPoint::sourceMessageId)));
+                list.sort(Comparator.comparingLong(EvalPoint::sourceMessageId)));
         return bySession;
     }
 
@@ -590,6 +597,21 @@ public final class EvalRunner {
                 sourceSession,
                 config.sourceDayFrom(),
                 config.sourceDayTo().isBlank() ? config.sourceDayFrom() : config.sourceDayTo()).read();
+    }
+
+    /**
+     * Лог сессии с кэшем прогона: живой срез = коннект к source-PG — читаем один раз
+     * на сессию, а не на точку (как в replay, но лениво: из-за фильтров only/limit
+     * в wcheck/arms нельзя грузить все сессии заранее).
+     */
+    static List<RawMessage> sessionLog(Map<String, List<RawMessage>> cache,
+                                       EvalConfig config, String sourceSession) throws Exception {
+        List<RawMessage> log = cache.get(sourceSession);
+        if (log == null) {
+            log = readLog(config, sourceSession);
+            cache.put(sourceSession, log);
+        }
+        return log;
     }
 
     /** LongMemEval-режим: сессия точки имеет вид lme-<question_id> и задан source.lme.file. */

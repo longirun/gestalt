@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * W-проверка точки (план 31 §2.9): валидность покрытия определяется происхождением
@@ -16,7 +18,8 @@ import java.util.function.Function;
  * (lag-факт есть в W0-слепке, но раскрыт плечу B повтором из окна), а пустой evidence —
  * неизвестное происхождение (unknown), не валидность.
  * AnswerCovered — must-анкерованное покрытие: каждый must-маркер точки найден
- * (подстрока, регистронезависимо) в valid-факте (statement+predicate+object);
+ * (подстрока, регистронезависимо) в valid-факте (subject+statement+predicate+object;
+ * null/пустые поля пропускаются);
  * честная нижняя граница для E2-PC («Encoding извлекает факты-ответы»): лексические
  * парафразы (иной порядок слов) считаются промахом — материал для ручного разбора.
  */
@@ -82,10 +85,11 @@ public final class WCheck {
             }
         }
         String validHaystack = valid.stream()
-                .map(f -> (f.statement() == null ? "" : f.statement()) + " "
-                        + f.predicate() + " " + f.object())
+                .map(f -> Stream.of(f.subject(), f.predicate(), f.object(), f.statement())
+                        .filter(s -> s != null && !s.isBlank())
+                        .collect(Collectors.joining(" ")))
                 .map(String::toLowerCase)
-                .reduce("", (a, b) -> a + " " + b)
+                .collect(Collectors.joining(" "))
                 .replaceAll("\\s+", " ");
         boolean answerCovered = !must.isEmpty() && must.stream()
                 .allMatch(marker -> validHaystack.contains(marker.toLowerCase()));

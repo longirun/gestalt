@@ -380,7 +380,6 @@ class EvalViewerTest {
                 node.put("promptTokens", row.promptTokens());
                 node.put("completionTokens", row.completionTokens());
                 node.put("latencyMs", row.latencyMs());
-                node.put("cached", row.cached());
                 node.put("at", row.at() == null ? null : row.at().toString());
                 root.withObject(row.pointId()).set(row.arm(), node);
             }
