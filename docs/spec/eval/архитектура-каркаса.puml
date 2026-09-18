@@ -6,7 +6,7 @@ skinparam componentStyle rectangle
 skinparam roundcorner 6
 skinparam shadowing false
 skinparam defaultFontName "Liberation Sans, sans-serif"
-skinparam defaultFontSize 12
+skinparam defaultFontSize 13
 
 skinparam component {
   BackgroundColor #EDE7F6
