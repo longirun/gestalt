@@ -1,5 +1,8 @@
 @startuml прогон-плечей
 title Прогон точки: плечи A/B, слепок на M (Р45)
+
+skinparam defaultFontSize 13
+
 participant "Runner" as R
 participant "A — с портретом" as A
 participant "B — без портрета" as B

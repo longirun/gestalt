@@ -1,5 +1,8 @@
 @startuml таймлайн-точки
 title Анатомия точки на логе (Р45)
+
+skinparam defaultFontSize 13
+
 rectangle "прошлый\nлог" as past
 rectangle "**T**\nфакт-паттерн\nродился в портрете" as T
 rectangle "факты вне окна ...\nзнает только A\n(через портрет)" as out
