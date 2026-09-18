@@ -71,7 +71,7 @@ public final class Experiments {
             if (!ingestFp.equals(experiment.ingestFp())) {
                 throw new IllegalStateException(("эксперимент '%s' построен с другим ingest_fp (%s ≠ %s): "
                         + "смена инжест-конфига = новый эксперимент (§7.2), задай свежий слаг")
-                        .formatted(slugArg, shortFp(experiment.ingestFp()), shortFp(ingestFp)));
+                        .formatted(slugArg, Fingerprints.shortFp(experiment.ingestFp()), Fingerprints.shortFp(ingestFp)));
             }
             return slugArg;
         }
@@ -91,16 +91,8 @@ public final class Experiments {
         }
         throw new IllegalStateException(("ingest-конфиг сменился с момента создания '%s' (%s ≠ %s): "
                 + "новый эксперимент = `replay <new-slug>` — '%s' уйдёт в archived, инжест начнётся с нуля (§7.2)")
-                .formatted(experiment.slug(), shortFp(experiment.ingestFp()),
-                        shortFp(ingestFp), experiment.slug()));
-    }
-
-    /** Короткая форма fp для диагностики (полный — 64 hex-символа). */
-    private static String shortFp(String fp) {
-        if (fp == null) {
-            return "null";
-        }
-        return fp.length() <= 12 ? fp : fp.substring(0, 12);
+                .formatted(experiment.slug(), Fingerprints.shortFp(experiment.ingestFp()),
+                        Fingerprints.shortFp(ingestFp), experiment.slug()));
     }
 
     /** Создание эксперимента: прочие active → archived, сброс инжест-состояния датасета. */
@@ -120,7 +112,7 @@ public final class Experiments {
         System.out.printf("[EXP] experiment %s: создан (material %s, ingest_fp %s), archived %d, "
                         + "инжест-состояние сброшено: %d фактов owner/project удалено, чекпоинты сессий снесены — "
                         + "re-replay с нуля%n",
-                slug, material(config, points), shortFp(ingestFp), archived, resetFacts);
+                slug, material(config, points), Fingerprints.shortFp(ingestFp), archived, resetFacts);
     }
 
     /** Сброс приборного состояния для re-replay с нуля: факты owner/project и чекпоинты сессий датасета. */
@@ -163,7 +155,9 @@ public final class Experiments {
     static String configSnapshot(EvalConfig config) {
         ObjectNode node = MAPPER.createObjectNode();
         node.put("llm.model", config.llmModel());
-        node.put("llm.answer.model", Fingerprints.answerModel(config));
+        node.put("llm.reasoning-effort", config.llmReasoningEffort());
+        node.put("llm.answer.model", config.llmAnswerModel());
+        node.put("llm.answer.reasoning-effort", config.llmAnswerReasoningEffort());
         node.put("window.size", config.windowSize());
         node.put("batch.max-messages", config.batchMaxMessages());
         node.put("batch.max-tokens", config.batchMaxTokens());

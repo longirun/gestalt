@@ -156,6 +156,40 @@ class WCheckTest {
     }
 
     @Test
+    void mustLivingOnlyInSubjectCoversAnswer() {
+        // маркер — имя сущности из subject: раньше subject не входил в haystack
+        // и такой маркер ложно промахивался
+        UUID fact = UUID.randomUUID();
+        Map<UUID, List<Long>> evidence = Map.of(fact, List.of(10L));
+        String snapshot = "{\"critical\":["
+                + "{\"id\":\"" + fact + "\",\"subject\":\"env:staging\",\"predicate\":\"p\",\"object\":\"o\"}"
+                + "]}";
+
+        WCheck.PointReport report = WCheck.check("L1-x", List.of("staging"),
+                snapshot, 15, 20, evidence::get);
+
+        assertTrue(report.answerCovered());
+    }
+
+    @Test
+    void nullFieldsDoNotLeakLiteralNullIntoHaystack() {
+        // NARRATIVE без predicate/object: JSON-null не должен становиться литералом "null"
+        UUID fact = UUID.randomUUID();
+        Map<UUID, List<Long>> evidence = Map.of(fact, List.of(10L));
+        String snapshot = "{\"critical\":["
+                + "{\"id\":\"" + fact + "\",\"subject\":\"s\",\"predicate\":null,\"object\":null}"
+                + "]}";
+
+        WCheck.PointReport literalMatch = WCheck.check("L1-x", List.of("null"),
+                snapshot, 15, 20, evidence::get);
+        assertFalse(literalMatch.answerCovered());
+
+        WCheck.PointReport subjectMatch = WCheck.check("L1-x", List.of("s"),
+                snapshot, 15, 20, evidence::get);
+        assertTrue(subjectMatch.answerCovered());
+    }
+
+    @Test
     void emptyMustNeverAnswerCovers() {
         UUID fact = UUID.randomUUID();
         Map<UUID, List<Long>> evidence = Map.of(fact, List.of(10L));

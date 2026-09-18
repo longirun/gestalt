@@ -6,7 +6,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
 
-/** Конфиг eval: eval/local.properties (вне VCS) + env-переопределения (LLM_API_KEY). */
+/**
+ * Конфиг eval: eval/local.properties (вне VCS) + env-переопределения (LLM_API_KEY).
+ * Поля llm.answer.* резолвнуты при load(): blank base-url/api-key/model наследуют
+ * экстракционные llm.*, reasoning-effort независим (плечо ответа управляется явно).
+ */
 public record EvalConfig(
         String sourceDbUrl, String sourceDbUser, String sourceDbPassword,
         String sourceDayFrom, String sourceDayTo, String sourceFixture, String sourceLmeFile,
@@ -33,6 +37,22 @@ public record EvalConfig(
         String day = props.getProperty("source.day", "");
         String dayFrom = props.getProperty("source.day-from", day);
         String dayTo = props.getProperty("source.day-to", day);
+        String llmBaseUrl = props.getProperty("llm.base-url", "");
+        String llmModel = props.getProperty("llm.model", "");
+        // отвечающая модель плеч (E3): blank наследует экстракционную llm.* — единая
+        // семантика (отсутствует ключ или пустое значение) для рантайма и configSnapshot
+        String answerBaseUrl = props.getProperty("llm.answer.base-url", "");
+        if (answerBaseUrl.isBlank()) {
+            answerBaseUrl = llmBaseUrl;
+        }
+        String answerApiKey = props.getProperty("llm.answer.api-key", "");
+        if (answerApiKey.isBlank()) {
+            answerApiKey = apiKey;
+        }
+        String answerModel = props.getProperty("llm.answer.model", "");
+        if (answerModel.isBlank()) {
+            answerModel = llmModel;
+        }
         return new EvalConfig(
                 props.getProperty("source.db.url", ""),
                 props.getProperty("source.db.user", ""),
@@ -44,14 +64,13 @@ public record EvalConfig(
                 props.getProperty("target.db.url", "jdbc:postgresql://localhost:5433/gestalt_eval"),
                 props.getProperty("target.db.user", ""),
                 props.getProperty("target.db.password", ""),
-                props.getProperty("llm.base-url", ""),
+                llmBaseUrl,
                 apiKey,
-                props.getProperty("llm.model", ""),
+                llmModel,
                 props.getProperty("llm.reasoning-effort", ""),
-                // отвечающая модель плеч (E3): fallback на экстракционную llm.*
-                props.getProperty("llm.answer.base-url", props.getProperty("llm.base-url", "")),
-                props.getProperty("llm.answer.api-key", apiKey),
-                props.getProperty("llm.answer.model", props.getProperty("llm.model", "")),
+                answerBaseUrl,
+                answerApiKey,
+                answerModel,
                 props.getProperty("llm.answer.reasoning-effort", ""),
                 Integer.parseInt(props.getProperty("batch.max-messages", "20")),
                 Integer.parseInt(props.getProperty("batch.max-tokens", "2000")),

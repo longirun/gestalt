@@ -15,7 +15,7 @@ import java.util.Set;
  * Encoding, fast path (Р6/Р8): один LLM-вызов на батч.
  * Сериализация батча в user-payload, разбор JSON-ответа, валидация схемы.
  */
-public final class LlmBatchExtractor implements FactExtractor {
+public final class LlmBatchExtractor {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Set<String> DOMAINS = Set.of("WORLD", "PSYCHE");
@@ -31,10 +31,6 @@ public final class LlmBatchExtractor implements FactExtractor {
             List<ExtractedFact> facts,
             LlmClient.Usage usage,
             long durationMillis) {
-    }
-
-    public ExtractionBatchResult extractWithMetrics(List<RawMessage> batch) {
-        return extractWithMetrics(batch, List.of());
     }
 
     public ExtractionBatchResult extractWithMetrics(List<RawMessage> batch, List<String> knownPredicates) {
@@ -77,11 +73,6 @@ public final class LlmBatchExtractor implements FactExtractor {
         }
     }
 
-    @Override
-    public List<ExtractedFact> extract(List<RawMessage> batch) {
-        return extractWithMetrics(batch).facts();
-    }
-
     public static List<ExtractedFact> parseResponse(String rawResponse) {
         if (rawResponse == null || rawResponse.isBlank()) {
             return List.of();
@@ -112,6 +103,10 @@ public final class LlmBatchExtractor implements FactExtractor {
 
                 // Нормализация domain ∈ {WORLD, PSYCHE}
                 String domain = DOMAINS.contains(rawDomain) ? rawDomain : "WORLD";
+                // модели (особенно локальные) иногда схлопывают таксономию: пишут kind="PSYCHE"
+                // вместо kind=STATE/NARRATIVE + domain=PSYCHE. Восстанавливаем domain (явный WORLD
+                // при таком kind трактуем как конфликт в пользу PSYCHE), а kind определится
+                // ниже эвристикой STATE/NARRATIVE
                 if ("PSYCHE".equals(rawKind)) {
                     domain = "PSYCHE";
                 }
@@ -120,8 +115,6 @@ public final class LlmBatchExtractor implements FactExtractor {
                 String kind;
                 if (KINDS.contains(rawKind)) {
                     kind = rawKind;
-                } else if ("EVENT".equalsIgnoreCase(rawKind)) {
-                    kind = "EVENT";
                 } else if (!object.isBlank() && !predicate.isBlank()) {
                     kind = "STATE";
                 } else {

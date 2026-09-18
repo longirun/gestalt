@@ -75,6 +75,9 @@ class EvalConfigTest {
         assertEquals("https://router.example/api/v1", config.llmBaseUrl());
         assertEquals("test-model", config.llmModel());
         assertEquals("medium", config.llmReasoningEffort());
+        // отсутствующие llm.answer.* наследуют llm.*
+        assertEquals("https://router.example/api/v1", config.llmAnswerBaseUrl());
+        assertEquals("test-model", config.llmAnswerModel());
         assertEquals(7, config.batchMaxMessages());
         assertEquals(1500, config.batchMaxTokens());
         assertEquals("user:tester", config.portraitOwner());
@@ -105,5 +108,25 @@ class EvalConfigTest {
         assertEquals("jdbc:postgresql://localhost:5433/gestalt_eval", config.targetDbUrl());
         assertEquals(2000, config.batchMaxTokens());
         assertEquals("dataset/points.jsonl", config.datasetFile());
+    }
+
+    @Test
+    void answerKeysBlankFallBackAndEffortStaysIndependent() throws IOException {
+        Path file = tempDir.resolve("answer.properties");
+        Files.writeString(file, String.join("\n",
+                "llm.base-url=https://router.example/api/v1",
+                "llm.api-key=file-key",
+                "llm.model=test-model",
+                "llm.reasoning-effort=medium",
+                "llm.answer.base-url=",
+                "llm.answer.model=answer-model"));
+        EvalConfig config = EvalConfig.load(file);
+
+        assertEquals("https://router.example/api/v1", config.llmAnswerBaseUrl(),
+                "пустое значение llm.answer.base-url наследует llm.base-url");
+        assertEquals("answer-model", config.llmAnswerModel(),
+                "явное значение llm.answer.model не перекрывается");
+        assertEquals("", config.llmAnswerReasoningEffort(),
+                "reasoning-effort отвечающей модели не наследует llm.reasoning-effort");
     }
 }

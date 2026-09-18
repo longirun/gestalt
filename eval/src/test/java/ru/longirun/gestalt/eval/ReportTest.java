@@ -46,6 +46,19 @@ class ReportTest {
     }
 
     @Test
+    void allLeakVetoLeavesEmptySample() {
+        Oracles.PointVerdict leaked = new Oracles.PointVerdict("leaked", "C",
+                new Oracles.ArmVerdict(false, List.of("x"), List.of("SECRET")),
+                new Oracles.ArmVerdict(false, List.of("x"), List.of()), true, List.of("SECRET"));
+
+        Report.Stats s = Report.stats(List.of(leaked, leaked));
+
+        // предусловие отказа в run(): проценты при n=0 дали бы NaN
+        assertEquals(0, s.n());
+        assertEquals(2, s.leaks());
+    }
+
+    @Test
     void mcnemarExactMatchesBinomial() {
         assertEquals(1.0, Report.mcnemarExact(0, 0));
         // 2·2^-30 — глубокая значимость при полном разгроме 0:30

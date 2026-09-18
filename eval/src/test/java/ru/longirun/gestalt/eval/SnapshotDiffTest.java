@@ -7,6 +7,7 @@ import ru.longirun.gestalt.eval.portrait.SnapshotDiff;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class SnapshotDiffTest {
 
@@ -34,5 +35,19 @@ class SnapshotDiffTest {
                 {"critical":[{"id":"11111111-1111-1111-1111-111111111111","subject":"a"}]}""";
 
         assertEquals(1, SnapshotDiff.newFacts("{}", after).size());
+    }
+
+    @Test
+    void jsonNullAndMissingFieldsBecomeNullNotLiteralString() {
+        String after = """
+                {"critical":[{"id":"11111111-1111-1111-1111-111111111111",
+                 "subject":"a","predicate":null,"statement":"prefers X"}]}""";
+
+        List<SnapshotDiff.FactRef> appeared = SnapshotDiff.newFacts("{}", after);
+
+        assertEquals(1, appeared.size());
+        assertNull(appeared.getFirst().predicate()); // JSON null, а не строка "null"
+        assertNull(appeared.getFirst().object());    // поле отсутствует
+        assertEquals("prefers X", appeared.getFirst().statement());
     }
 }

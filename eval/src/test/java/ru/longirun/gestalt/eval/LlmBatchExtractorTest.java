@@ -161,6 +161,36 @@ class LlmBatchExtractorTest {
     }
 
     @Test
+    void recoversDomainWhenModelPutsPsycheInKind() {
+        String json = """
+                [
+                  {
+                    "kind": "PSYCHE",
+                    "subject": "user:anton",
+                    "predicate": "docs_preference",
+                    "object": "annotations",
+                    "domain": "WORLD",
+                    "scope": "USER"
+                  },
+                  {
+                    "kind": "PSYCHE",
+                    "subject": "user:anton",
+                    "statement": "Prefers terse replies"
+                  }
+                ]
+                """;
+
+        List<ExtractedFact> facts = LlmBatchExtractor.parseResponse(json);
+        assertEquals(2, facts.size());
+        // явный WORLD при kind="PSYCHE" перезаписан; kind восстановлен эвристикой (есть predicate+object)
+        assertEquals("PSYCHE", facts.get(0).domain());
+        assertEquals("STATE", facts.get(0).kind());
+        // domain отсутствовал (default WORLD) — тоже PSYCHE; без predicate+object kind → NARRATIVE
+        assertEquals("PSYCHE", facts.get(1).domain());
+        assertEquals("NARRATIVE", facts.get(1).kind());
+    }
+
+    @Test
     void normalizesUnknownDomainsAndScopes() {
         String json = """
                 [

@@ -19,10 +19,14 @@ import java.util.List;
  * со статусом in-window (словарь вердиктов WCheck не плодим). И3 — анкер истины
  * строго после триггера (причинность: предсказание будущего, не пересказ настоящего).
  * И4 — W-проверка: существующая механика WCheck, здесь не дублируется.
+ * И5 — маркеры не коллидируют: ни один mustNot не матчится внутри must-маркера
+ * (границы слов оракула): любой ответ, содержащий must, обязан содержать и mustNot —
+ * pass недостижим, точка мёртвая по построению.
  * <p>
  * Статусы (приоритет по нумерации инвариантов спеки; детали собираются все):
  * ok — инварианты соблюдены; span-miss — И1 (спан не найден в реплике-носителе,
- * включая M/якор вне лог-среза); in-window — И2 (маркер в окне); causality — И3
+ * включая M/якор вне лог-среза); in-window — И2 (маркер в окне);
+ * marker-collision — И5 (mustNot внутри must); causality — И3
  * (якор истины не после M); unanchored — legacy-точка до спеки 33 (L1 без
  * truthMessageId: И1-truth/И3 непроверяемы, И1-trigger/И2 проверяются); skip — LME
  * (вопросы авторов бенчмарка, спан-инварианты неприменимы). C-точки: И1 — только по
@@ -38,6 +42,7 @@ public final class SpanValidator {
     public static final String OK = "ok";
     public static final String SPAN_MISS = "span-miss";
     public static final String IN_WINDOW = "in-window";
+    public static final String MARKER_COLLISION = "marker-collision";
     public static final String CAUSALITY = "causality";
     public static final String UNANCHORED = "unanchored";
     public static final String SKIP = "skip";
@@ -61,7 +66,7 @@ public final class SpanValidator {
             return new PointVerdict(point.id(), SKIP, details);
         }
 
-        int idxM = indexOfMessage(log, point.sourceMessageId());
+        int idxM = EvalRunner.indexOfMessage(log, point.sourceMessageId());
         if (idxM < 0) {
             details.add("message %d (M) not found in the log slice".formatted(point.sourceMessageId()));
             return new PointVerdict(point.id(), SPAN_MISS, details);
@@ -90,7 +95,8 @@ public final class SpanValidator {
                     causality.add("truth anchor %d is not after M %d"
                             .formatted(point.truthMessageId(), point.sourceMessageId()));
                 }
-                RawMessage carrier = messageById(log, point.truthMessageId());
+                int idxCarrier = EvalRunner.indexOfMessage(log, point.truthMessageId());
+                RawMessage carrier = idxCarrier >= 0 ? log.get(idxCarrier) : null;
                 if (carrier == null) {
                     spanMisses.add("message %d (truth anchor) not found in the log slice"
                             .formatted(point.truthMessageId()));
@@ -102,10 +108,12 @@ public final class SpanValidator {
             }
         }
 
-        // must/mustNot могут отсутствовать в jsonl точки — null-safe итерация (ревью 1.3)
-        List<String> markers = control ? point.mustNot() : point.must();
+        // must/mustNot могут отсутствовать в jsonl точки — null-safe списки (ревью 1.3)
+        List<String> musts = point.must() == null ? List.<String>of() : point.must();
+        List<String> mustNots = point.mustNot() == null ? List.<String>of() : point.mustNot();
+        List<String> markers = control ? mustNots : musts;
         int from = Math.max(0, idxM - windowSize);
-        for (String marker : markers == null ? List.<String>of() : markers) {
+        for (String marker : markers) {
             for (int i = from; i <= idxM; i++) {
                 if (Oracles.matches(log.get(i).content(), marker)) {
                     inWindow.add("marker '%s' found in message %d (window)"
@@ -115,11 +123,27 @@ public final class SpanValidator {
             }
         }
 
+        // И5: вложенный mustNot наследует границы слов must-вхождения в ответе —
+        // любой ответ, засчитанный по must, триггерит mustNot (veto), pass недостижим.
+        // Обратная вложенность (must внутри mustNot) pass не ломает: mustNot может
+        // не встретиться в ответе вовсе.
+        List<String> collisions = new ArrayList<>();
+        for (String not : mustNots) {
+            for (String m : musts) {
+                if (Oracles.matches(m, not)) {
+                    collisions.add("mustNot marker '%s' matches inside must marker '%s'"
+                            .formatted(not, m));
+                }
+            }
+        }
+
         details.addAll(spanMisses);
         details.addAll(inWindow);
+        details.addAll(collisions);
         details.addAll(causality);
         String status = !spanMisses.isEmpty() ? SPAN_MISS
                 : !inWindow.isEmpty() ? IN_WINDOW
+                : !collisions.isEmpty() ? MARKER_COLLISION
                 : !causality.isEmpty() ? CAUSALITY
                 : unanchored ? UNANCHORED
                 : OK;
@@ -132,21 +156,4 @@ public final class SpanValidator {
         return s == null ? "" : s.toLowerCase().replace('ё', 'е').replaceAll("\\s+", " ").strip();
     }
 
-    private static int indexOfMessage(List<RawMessage> log, long id) {
-        for (int i = 0; i < log.size(); i++) {
-            if (log.get(i).id() == id) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static RawMessage messageById(List<RawMessage> log, long id) {
-        for (RawMessage message : log) {
-            if (message.id() == id) {
-                return message;
-            }
-        }
-        return null;
-    }
 }
