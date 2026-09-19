@@ -26,14 +26,26 @@ public final class ReconciliationJob {
 
     public String reconcile(String ownerId, String projectId) throws SQLException {
         List<StoredFact> facts = repository.findByOwnerAndProject(ownerId, projectId);
-        OffsetDateTime cutoff = facts.stream()
+        String snapshotJson = builder.build(ownerId, projectId, facts);
+        store.upsert(ownerId, projectId, snapshotJson, cutoff(facts));
+        return snapshotJson;
+    }
+
+    /**
+     * Слепок на момент bound для точки, добавленной в датасет после завершённого
+     * инжеста: временная проекция evidence (TemporalProjection). Портретный стор
+     * не трогаем — там текущее состояние памяти, а не историческое.
+     */
+    public String reconcileAt(String ownerId, String projectId, long bound) throws SQLException {
+        List<StoredFact> facts = repository.findByOwnerAndProject(ownerId, projectId);
+        return builder.build(ownerId, projectId, TemporalProjection.atBound(facts, bound));
+    }
+
+    private OffsetDateTime cutoff(List<StoredFact> facts) {
+        return facts.stream()
                 .map(StoredFact::createdAt)
                 .filter(Objects::nonNull)
                 .max(Comparator.naturalOrder())
                 .orElse(OffsetDateTime.now());
-
-        String snapshotJson = builder.build(ownerId, projectId, facts);
-        store.upsert(ownerId, projectId, snapshotJson, cutoff);
-        return snapshotJson;
     }
 }
