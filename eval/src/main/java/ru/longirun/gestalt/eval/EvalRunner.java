@@ -262,37 +262,35 @@ public final class EvalRunner {
                             .thenComparingInt(Work::tieBreak));
 
                     for (Work work : works) {
+                        String json;
+                        boolean projected = false;
                         if (work.bound() > cursor) {
                             ingest(owner, project, pipeline, extractor, batcher, checkpoints, metrics,
                                     log, cursor, work.bound(), sessionId, repo);
                             cursor = work.bound();
+                            json = job.reconcile(owner, project);
                         } else if (work.bound() < cursor) {
-                            if (work.w0()) {
-                                // теоретически недостижимо (работы по возрастанию границы), но страховка
-                                // от рассинхрона чекпоинт/слепки при ручных правках snapshots
-                                postponed++;
-                                System.out.printf("[REPLAY] point %s: POSTPONED W0 %d behind cursor %d%n",
-                                        work.point().id(), work.bound(), cursor);
-                                continue;
-                            }
-                            throw new IllegalStateException("snapshot missing for point %s but checkpoint %d is past bound %d: "
-                                    .formatted(work.point().id(), cursor, work.bound())
-                                    + "слепок нельзя честно перестроить (в БД факты за границей) — восстановите snapshots "
-                                    + "или сбросьте gestalt_eval и прогоните replay заново");
+                            // точка добавлена в датасет после завершённого инжеста (курсор за границей):
+                            // честная пересборка временной проекцией evidence — состав фактов на момент
+                            // границы, утечек будущего нет (арбитраж TemporalProjection); порядок приближён
+                            projected = true;
+                            json = job.reconcileAt(owner, project, work.bound());
+                        } else {
+                            json = job.reconcile(owner, project);
                         }
-                        String json = job.reconcile(owner, project);
                         String kind = work.w0() ? "w0" : "m";
                         snapshotStore.upsert(experiment, work.point().id(), kind, json, runId);
                         writeAtomically(snapshotsDir.resolve(work.point().id()
                                 + ("w0".equals(kind) ? ".w0.json" : ".json")), json);
                         if (work.w0()) {
                             w0Written++;
-                            System.out.printf("[REPLAY] point %s: W0=%d -> snapshot (facts <= W0)%n",
-                                    work.point().id(), work.bound());
+                            System.out.printf("[REPLAY] point %s: W0=%d -> snapshot (facts <= W0)%s%n",
+                                    work.point().id(), work.bound(), projected ? " [temporal projection]" : "");
                         } else {
                             written++;
-                            System.out.printf("[REPLAY] point %s: M=%d -> snapshot (facts < M, exclusive)%n",
-                                    work.point().id(), work.point().sourceMessageId());
+                            System.out.printf("[REPLAY] point %s: M=%d -> snapshot (facts < M, exclusive)%s%n",
+                                    work.point().id(), work.point().sourceMessageId(),
+                                    projected ? " [temporal projection]" : "");
                         }
                     }
                 }

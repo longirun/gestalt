@@ -9,9 +9,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Стадия E5 — сводный отчёт (ADR 28 §3.5): lift = P(pass|A) − P(pass|B) на машинных
@@ -103,8 +104,15 @@ public final class Report {
             long runId = runs.start(experiment, "report", "сводный отчёт из вердиктов PG");
             try {
                 verdicts = new ArrayList<>();
+                // ревизия датасета: меряем только точки текущего датасета, вердикты
+                // удалённых точек (сироты в PG) в отчёт не входят
+                Set<String> pointIds = EvalDataset.load(EvalPaths.resolve(config.datasetFile()))
+                        .stream().map(EvalPoint::id).collect(Collectors.toSet());
                 for (ResultStore.VerdictRow row : results.verdicts(experiment)) {
-                    verdicts.add(MAPPER.readValue(row.payloadJson(), Oracles.PointVerdict.class));
+                    Oracles.PointVerdict v = MAPPER.readValue(row.payloadJson(), Oracles.PointVerdict.class);
+                    if (pointIds.contains(v.pointId())) {
+                        verdicts.add(v);
+                    }
                 }
                 runs.finish(runId, "done");
             } catch (Exception e) {
