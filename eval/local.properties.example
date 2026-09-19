@@ -52,3 +52,4 @@ dataset.file=data/points.live.jsonl
 
 # Тест чистоты системного промпта: список токенов через запятую
 # test.prompt.forbidden-tokens=secret1, secret2
+
