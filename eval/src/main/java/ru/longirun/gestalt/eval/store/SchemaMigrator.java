@@ -5,7 +5,7 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.util.Scanner;
 
-/** Применяет sql/001..008 к целевой базе (gestalt_eval): факты, слепки, чекпоинты, lifecycle, пер-точечные слепки, словарь forkType, дроп answers.cached, пер-точечный point_fp. */
+/** Применяет sql/001..009 к целевой базе (gestalt_eval): факты, слепки, чекпоинты, lifecycle, пер-точечные слепки, словарь forkType, дроп answers.cached, пер-точечный point_fp, этап embed. */
 public final class SchemaMigrator {
 
     public static void migrate(Connection connection) throws Exception {
@@ -17,6 +17,7 @@ public final class SchemaMigrator {
         apply(connection, "/sql/006_fork_types.sql");
         apply(connection, "/sql/007_drop_answer_cached.sql");
         apply(connection, "/sql/008_point_fp.sql");
+        apply(connection, "/sql/009_embed_stage.sql");
     }
 
     private static void apply(Connection connection, String resource) throws Exception {

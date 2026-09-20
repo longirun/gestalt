@@ -23,9 +23,19 @@ public record EvalConfig(
         String llmAnswerBaseUrl, String llmAnswerApiKey, String llmAnswerModel, String llmAnswerReasoningEffort,
         String llmEmbeddingBaseUrl, String llmEmbeddingApiKey, String llmEmbeddingModel,
         int batchMaxMessages, int batchMaxTokens,
-        int windowSize,
+        int windowSize, int digestTopK,
         String portraitOwner, String portraitProject,
         String datasetFile) {
+
+    /**
+     * Селекция дайджеста включена ⟺ группа llm.embedding.* заполнена целиком:
+     * частично заданная группа — ошибка оператора, а не «половина селекции».
+     */
+    public boolean selectionEnabled() {
+        return !llmEmbeddingBaseUrl().isBlank()
+                && !llmEmbeddingApiKey().isBlank()
+                && !llmEmbeddingModel().isBlank();
+    }
 
     public static EvalConfig load(Path propertiesFile) throws IOException {
         Properties props = new Properties();
@@ -87,6 +97,7 @@ public record EvalConfig(
                 Integer.parseInt(props.getProperty("batch.max-messages", "20")),
                 Integer.parseInt(props.getProperty("batch.max-tokens", "2000")),
                 Integer.parseInt(props.getProperty("window.size", "5")),
+                Integer.parseInt(props.getProperty("digest.top-k", "50")),
                 props.getProperty("portrait.owner", ""),
                 props.getProperty("portrait.project", ""),
                 props.getProperty("dataset.file", "dataset/points.jsonl"));

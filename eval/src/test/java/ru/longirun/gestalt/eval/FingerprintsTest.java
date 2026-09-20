@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FingerprintsTest {
 
     private static EvalConfig config(String lmeFile, String model, String answerModel,
-                                     int batchMessages, int window) {
+                                      int batchMessages, int window) {
         return new EvalConfig(
                 "jdbc:postgresql://localhost:5433/honcho_memory", "u", "p",
                 "2026-06-15", "2026-08-11", "", lmeFile,
@@ -24,7 +24,20 @@ class FingerprintsTest {
                 "https://llm", "key", model, "low",
                 "https://llm", "key", answerModel, "low",
                 "", "", "",
-                batchMessages, 2000, window, "user:t", "project:t", "dataset/points.jsonl");
+                batchMessages, 2000, window, 50, "user:t", "project:t", "dataset/points.jsonl");
+    }
+
+    /** Копия конфига с включённой селекцией (группа llm.embedding.* целиком). */
+    private static EvalConfig withSelection(EvalConfig c, String embeddingModel, int topK) {
+        return new EvalConfig(
+                c.sourceDbUrl(), c.sourceDbUser(), c.sourceDbPassword(),
+                c.sourceDayFrom(), c.sourceDayTo(), c.sourceFixture(), c.sourceLmeFile(),
+                c.targetDbUrl(), c.targetDbUser(), c.targetDbPassword(),
+                c.llmBaseUrl(), c.llmApiKey(), c.llmModel(), c.llmReasoningEffort(),
+                c.llmAnswerBaseUrl(), c.llmAnswerApiKey(), c.llmAnswerModel(), c.llmAnswerReasoningEffort(),
+                "https://embed", "embed-key", embeddingModel,
+                c.batchMaxMessages(), c.batchMaxTokens(), c.windowSize(), topK,
+                c.portraitOwner(), c.portraitProject(), c.datasetFile());
     }
 
     @Test
@@ -66,6 +79,37 @@ class FingerprintsTest {
         assertNotEquals(Fingerprints.answerFp(base),
                 Fingerprints.answerFp(config("", "qwen", "", 20, 10)),
                 "смена окна N — новые ответы");
+    }
+
+    @Test
+    void answerFpSensitiveToSelectionParams() {
+        EvalConfig off = config("", "qwen", "", 20, 5);
+        EvalConfig on = withSelection(off, "bge-m3", 50);
+
+        assertNotEquals(Fingerprints.answerFp(off), Fingerprints.answerFp(on),
+                "включение селекции = другой дайджест плечу A — перезапись ответов");
+        assertNotEquals(Fingerprints.answerFp(on),
+                Fingerprints.answerFp(withSelection(off, "bge-m3", 30)),
+                "смена top-K — другой состав дайджеста, новые ответы");
+        assertNotEquals(Fingerprints.answerFp(on),
+                Fingerprints.answerFp(withSelection(off, "e5-mistral", 50)),
+                "смена эмбеддинг-модели — другое пространство близости, новые ответы");
+    }
+
+    @Test
+    void selectionOffKeepsPreSelectionFpAndIgnoresTopK() {
+        EvalConfig off = config("", "qwen", "", 20, 5);
+        EvalConfig otherTopK = new EvalConfig(
+                off.sourceDbUrl(), off.sourceDbUser(), off.sourceDbPassword(),
+                off.sourceDayFrom(), off.sourceDayTo(), off.sourceFixture(), off.sourceLmeFile(),
+                off.targetDbUrl(), off.targetDbUser(), off.targetDbPassword(),
+                off.llmBaseUrl(), off.llmApiKey(), off.llmModel(), off.llmReasoningEffort(),
+                off.llmAnswerBaseUrl(), off.llmAnswerApiKey(), off.llmAnswerModel(), off.llmAnswerReasoningEffort(),
+                off.llmEmbeddingBaseUrl(), off.llmEmbeddingApiKey(), off.llmEmbeddingModel(),
+                off.batchMaxMessages(), off.batchMaxTokens(), off.windowSize(), 10,
+                off.portraitOwner(), off.portraitProject(), off.datasetFile());
+        assertEquals(Fingerprints.answerFp(off), Fingerprints.answerFp(otherTopK),
+                "без селекции digest.top-k не входит в fp: кэш E6 не инвалидируется");
     }
 
     @Test
@@ -114,7 +158,7 @@ class FingerprintsTest {
                 c.llmBaseUrl(), c.llmApiKey(), c.llmModel(), effort,
                 c.llmAnswerBaseUrl(), c.llmAnswerApiKey(), c.llmAnswerModel(), answerEffort,
                 c.llmEmbeddingBaseUrl(), c.llmEmbeddingApiKey(), c.llmEmbeddingModel(),
-                c.batchMaxMessages(), c.batchMaxTokens(), c.windowSize(),
+                c.batchMaxMessages(), c.batchMaxTokens(), c.windowSize(), c.digestTopK(),
                 c.portraitOwner(), c.portraitProject(), c.datasetFile());
     }
 

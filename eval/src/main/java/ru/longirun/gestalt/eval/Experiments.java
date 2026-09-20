@@ -159,6 +159,9 @@ public final class Experiments {
         node.put("llm.answer.model", config.llmAnswerModel());
         node.put("llm.answer.reasoning-effort", config.llmAnswerReasoningEffort());
         node.put("window.size", config.windowSize());
+        node.put("selection.enabled", config.selectionEnabled());
+        node.put("llm.embedding.model", config.selectionEnabled() ? config.llmEmbeddingModel() : "");
+        node.put("digest.top-k", config.digestTopK());
         node.put("batch.max-messages", config.batchMaxMessages());
         node.put("batch.max-tokens", config.batchMaxTokens());
         node.put("dataset.file", config.datasetFile());

@@ -24,7 +24,7 @@
 | Таблица | Поля (суть) | Заменяет |
 |---|---|---|
 | `experiments` | id-slug, материал, dataset_ref, config_snapshot, `ingest_fp`, `answer_fp`, status (active/archived), note | ручные архивы и переименования |
-| `runs` | experiment, stage (replay/arms/oracles/wcheck/report), status (running/done/failed/interrupted), **llm_calls, prompt_tokens, completion_tokens**, started/finished, note | `replay-qwen*.log` вперемешку |
+| `runs` | experiment, stage (replay/arms/oracles/wcheck/report/embed), status (running/done/failed/interrupted), **llm_calls, prompt_tokens, completion_tokens**, started/finished, note | `replay-qwen*.log` вперемешку |
 | `answers` | experiment+point+arm, answer, model, tokens, latency_ms, cached, run_id, at | `out/answers/*.json` |
 | `verdicts` | experiment+point, pass A/B, missedMust, matchedMustNot, leak, leakMarkers, at | `out/oracles.jsonl` |
 | `wchecks` | experiment+point, covered, answerCovered, valid/in-window/lag/unknown, at | `out/wcheck.jsonl` |
@@ -41,8 +41,8 @@
 ### 2.4. Runs: независимость, резюм, удаление
 
 - Прогоны разных экспериментов независимы (изоляция owner/project в PG + experiment_id в таблицах).
-- **Обвязка стадий:** каждая стадия (replay/arms/oracles/wcheck/report) — run со статусами running→done/failed; застрявшие при старте → interrupted (`interruptStale`). Экономика (llm_calls / prompt_tokens / completion_tokens) пишется replay/arms.
-- **Резюм:** прерванный/упавший run → interrupted/failed; повторный запуск той же стадии — новый run, продолжающий работу с чекпоинтов (инжест) / с существующих пар (arms). История попыток — в базе, а не в именах логов.
+- **Обвязка стадий:** каждая стадия (replay/arms/oracles/wcheck/report/embed) — run со статусами running→done/failed; застрявшие при старте → interrupted (`interruptStale`). Экономика (llm_calls / prompt_tokens / completion_tokens) пишется replay/arms; `embed` (backfill `facts.embedding` для read-time селекции дайджеста, E7) — llm_calls без токенов: `/embeddings` usage не отдаёт.
+- **Резюм:** прерванный/упавший run → interrupted/failed; повторный запуск той же стадии — новый run, продолжающий работу с чекпоинтов (инжест) / с существующих пар (arms) / с NULL-строк фактов (embed — идемпотентный backfill). История попыток — в базе, а не в именах логов.
 - **Удаление run'а — штатная операция** (решение владельца 2026-09-13): run + записанные им артефакты (не перезаписанные позже) удаляются каскадом — «неудачный прогон с конфликтными данными» не отравляет отчёты. Перезаписанные позже артефакты выживают (answers.run_id автора). Эксперимент — archive (read-only); удаление эксперимента целиком — отдельная деструктивная операция, точки/журнал при этом остаются файлами в `eval/data/`.
 
 ### 2.5. Границы решения
