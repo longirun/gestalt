@@ -12,7 +12,9 @@ import ru.longirun.gestalt.eval.ingest.HonchoPgSource;
 import ru.longirun.gestalt.eval.ingest.LongMemEvalAdapter;
 import ru.longirun.gestalt.eval.ingest.MessageSource;
 import ru.longirun.gestalt.eval.ingest.RawMessage;
+import ru.longirun.gestalt.eval.llm.EmbeddingClient;
 import ru.longirun.gestalt.eval.llm.LlmClient;
+import ru.longirun.gestalt.eval.portrait.DigestSelector;
 import ru.longirun.gestalt.eval.portrait.ReconciliationJob;
 import ru.longirun.gestalt.eval.portrait.SnapshotBuilder;
 import ru.longirun.gestalt.eval.portrait.SnapshotStore;
@@ -30,6 +32,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -50,6 +55,7 @@ public final class EvalRunner {
 
         switch (step) {
             case "replay" -> runReplay(config, args);
+            case "embed" -> runEmbed(config);
             case "candidates" -> runCandidates(config, args);
             case "validate" -> runValidate(config, args);
             case "wcheck" -> runWCheck(config, args);
@@ -502,6 +508,122 @@ public final class EvalRunner {
     private static void runArms(EvalConfig config, String[] args) throws Exception {
         int limit = args.length > 1 && !args[1].isBlank() ? Integer.parseInt(args[1]) : 0;
         Arms.run(config, limit);
+    }
+
+    /**
+     * Backfill facts.embedding для read-time селекции (E7): факты инжеста не зависят
+     * от эмбеддингов (ingest_fp селекцию не видит — 35 §2.3), поэтому догоняем векторы
+     * отдельным этапом, а не в replay. Идемпотентен: берёт только NULL-строки, упавший
+     * прогон продолжается с места обрыва. Прогон обёрнут в run (экономика: вызовы
+     * эмбеддинга считаются в llm_calls; токенов /embeddings не отдаёт).
+     */
+    private static void runEmbed(EvalConfig config) throws Exception {
+        if (!config.selectionEnabled()) {
+            throw new IllegalStateException("llm.embedding.base-url/api-key/model required: "
+                    + "embed без эмбеддинг-провайдера бессмыслен");
+        }
+        EmbeddingClient client = new EmbeddingClient(config.llmEmbeddingBaseUrl(),
+                config.llmEmbeddingApiKey(), config.llmEmbeddingModel());
+        final int chunk = 32;
+        try (Connection conn = DriverManager.getConnection(
+                config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+            SchemaMigrator.migrate(conn);
+            // колонка существует только при живом pgvector (SchemaMigrator молча вырезает
+            // её из sql/001 без расширения) — проверяем до цикла, чтобы не падать посреди прогона
+            try (var st = conn.createStatement(); var rs = st.executeQuery("SELECT embedding FROM facts LIMIT 1")) {
+                rs.next(); // сама читаемость колонки и есть проверка, строки могут отсутствовать
+            } catch (SQLException e) {
+                throw new IllegalStateException("facts.embedding недоступен (база без pgvector) — "
+                        + "backfill невозможен, ADR 24 §9: " + e.getMessage(), e);
+            }
+            String experiment = Experiments.resolveActive(new ExperimentStore(conn), null);
+            RunStore runs = new RunStore(conn);
+            int stale = runs.interruptStale(experiment, "embed");
+            if (stale > 0) {
+                System.out.printf("[EMBED] %d застрявших running-прогонов embed помечены interrupted (§7.3)%n", stale);
+            }
+            long runId = runs.start(experiment, "embed",
+                    "backfill facts.embedding для селекции дайджеста (модель " + config.llmEmbeddingModel() + ")");
+
+            long calls = 0;
+            int updated = 0;
+            try {
+                List<PendingFact> pending = pendingFacts(conn);
+                System.out.printf("[EMBED] фактов без эмбеддинга: %d (модель %s, батч %d)%n",
+                        pending.size(), config.llmEmbeddingModel(), chunk);
+                for (int from = 0; from < pending.size(); from += chunk) {
+                    List<PendingFact> part = pending.subList(from, Math.min(from + chunk, pending.size()));
+                    List<String> texts = part.stream().map(PendingFact::line).toList();
+                    List<double[]> vectors = client.embed(texts);
+                    calls++;
+                    double[] first = vectors.getFirst();
+                    if (first.length != DigestSelector.EMBEDDING_DIMS) {
+                        throw new IllegalStateException(("провайдер отдал размерность %d, а facts.embedding "
+                                + "vector(%d): смена размерности = миграция схемы + re-embed")
+                                .formatted(first.length, DigestSelector.EMBEDDING_DIMS));
+                    }
+                    updateEmbeddings(conn, part, vectors);
+                    updated += part.size();
+                }
+                runs.finish(runId, "done", calls, null, null);
+            } catch (Exception e) {
+                runs.finish(runId, "failed", calls, null, null);
+                throw e;
+            }
+            System.out.printf("[EMBED] done: %d fact(s) updated, embedding calls: %d (модель %s)%n",
+                    updated, calls, config.llmEmbeddingModel());
+        }
+    }
+
+    private record PendingFact(UUID id, String line) {
+    }
+
+    private static List<PendingFact> pendingFacts(Connection conn) throws SQLException {
+        String sql = """
+                SELECT id, statement, subject_norm, predicate_norm, object_value
+                FROM facts
+                WHERE embedding IS NULL
+                ORDER BY created_at ASC, id ASC
+                """;
+        List<PendingFact> pending = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String line = DigestSelector.factLine(rs.getString("statement"),
+                        rs.getString("subject_norm"), rs.getString("predicate_norm"),
+                        rs.getString("object_value"));
+                if (line.isBlank()) {
+                    throw new IllegalStateException("факт " + rs.getObject("id", UUID.class)
+                            + " без строкового представления: нечего эмбеддить");
+                }
+                pending.add(new PendingFact(rs.getObject("id", UUID.class), line));
+            }
+        }
+        return pending;
+    }
+
+    private static void updateEmbeddings(Connection conn, List<PendingFact> part,
+                                         List<double[]> vectors) throws SQLException {
+        String sql = "UPDATE facts SET embedding = ?::vector WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            for (int i = 0; i < part.size(); i++) {
+                ps.setString(1, vectorLiteral(vectors.get(i)));
+                ps.setObject(2, part.get(i).id());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
+    /** double[] → литерал pgvector "[0.1,0.2,...]". */
+    private static String vectorLiteral(double[] vector) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < vector.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(vector[i]);
+        }
+        return sb.append(']').toString();
     }
 
     /** Машинные проверки ответов: must/must_not (границы слов, без судей — ярус smoke); C-точки — булев leak-гейт. */

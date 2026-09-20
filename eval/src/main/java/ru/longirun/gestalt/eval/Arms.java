@@ -1,27 +1,34 @@
 package ru.longirun.gestalt.eval;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import ru.longirun.gestalt.eval.ingest.RawMessage;
+import ru.longirun.gestalt.eval.llm.EmbeddingClient;
 import ru.longirun.gestalt.eval.llm.LlmClient;
+import ru.longirun.gestalt.eval.portrait.DigestSelector;
 import ru.longirun.gestalt.eval.store.ExperimentStore;
 import ru.longirun.gestalt.eval.store.PointSnapshotStore;
 import ru.longirun.gestalt.eval.store.ResultStore;
 import ru.longirun.gestalt.eval.store.RunStore;
 import ru.longirun.gestalt.eval.store.SchemaMigrator;
 
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Стадия E3 — плечи A/B (ADR 28 §3.3): оба плеча отвечают на триггер M с идентичным
  * видимым контекстом — окном (W0, M) + вопросом; плечо A дополнительно получает дайджест
- * PortraitSnapshot в системном промпте, B — контроль без памяти. Одинаковая модель
+ * PortraitSnapshot в системном промпте (полный, либо top-K по косинусу к триггеру при
+ * включённой селекции llm.embedding.*, E7), B — контроль без памяти. Одинаковая модель
  * (llm.answer.* — резолвнутые значения, см. EvalConfig.load), temperature 0. Канон ответов — gestalt_eval.answers
  * (§7 writer: {answer, model, tokens, latencyMs, at, promptTokens, completionTokens});
  * существующие пары в PG не перегенерируются — кэш плеч замораживается (ADR 28),
@@ -29,54 +36,49 @@ import java.util.Set;
  */
 public final class Arms {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-
     private Arms() {
     }
 
-    /** Дайджест слепка для инъекции плечу A: секции critical/constructs/preferences → строки-стейтменты. */
+    /** Дайджест слепка для инъекции плечу A: полный (без селекции) или top-K по косинусу (E7). */
     static String memoryDigest(String snapshotJson) {
-        if (snapshotJson == null || snapshotJson.isBlank()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        try {
-            JsonNode root = MAPPER.readTree(snapshotJson);
-            for (String section : List.of("critical", "constructs", "preferences")) {
-                JsonNode facts = root.path(section);
-                if (!facts.isArray() || facts.isEmpty()) {
-                    continue;
-                }
-                sb.append("[").append(section).append("]\n");
-                for (JsonNode fact : facts) {
-                    String statement = fact.path("statement").asText("");
-                    String line = !statement.isBlank()
-                            ? statement
-                            : spo(fact.path("subject").asText(""),
-                                  fact.path("predicate").asText(""),
-                                  fact.path("object").asText(""));
-                    if (!line.isBlank()) {
-                        sb.append("- ").append(line).append('\n');
-                    }
-                }
-            }
-        } catch (Exception e) {
-            throw new IllegalArgumentException("unreadable snapshot json: " + e.getMessage(), e);
-        }
-        return sb.toString().strip();
+        return DigestSelector.render(snapshotJson, null, Map.of(), Map.of(), 0);
     }
 
-    private static String spo(String subject, String predicate, String object) {
-        StringBuilder sb = new StringBuilder();
-        for (String part : List.of(subject, predicate, object)) {
-            if (part != null && !part.isBlank()) {
-                if (!sb.isEmpty()) {
-                    sb.append(" · ");
-                }
-                sb.append(part);
-            }
+    /**
+     * Векторы фактов слепка из facts.embedding + created_at для tie-break. Отсутствие
+     * колонки (база без pgvector) и дыры в backfill — громкий отказ рана, не тихая
+     * деградация плеча A (ADR 24 §9).
+     */
+    private record FactEmbeddings(Map<UUID, double[]> vectors, Map<UUID, OffsetDateTime> createdAt) {
+    }
+
+    private static FactEmbeddings factEmbeddings(Connection conn, String snapshotJson) {
+        List<UUID> ids = DigestSelector.factIds(snapshotJson);
+        Map<UUID, double[]> vectors = new LinkedHashMap<>();
+        Map<UUID, OffsetDateTime> createdAt = new LinkedHashMap<>();
+        if (ids.isEmpty()) {
+            return new FactEmbeddings(vectors, createdAt);
         }
-        return sb.toString();
+        String sql = "SELECT id, embedding, created_at FROM facts WHERE id = ANY(?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            Array array = conn.createArrayOf("uuid", ids.toArray());
+            ps.setArray(1, array);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    UUID id = rs.getObject("id", UUID.class);
+                    double[] vector = DigestSelector.parseVector(rs.getString("embedding"));
+                    if (vector == null) {
+                        continue; // render откажет громко: селекция не выкидывает факты молча
+                    }
+                    vectors.put(id, vector);
+                    createdAt.put(id, rs.getObject("created_at", OffsetDateTime.class));
+                }
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("facts.embedding недоступен (база без pgvector?) — "
+                    + "read-time селекция невозможна: " + e.getMessage(), e);
+        }
+        return new FactEmbeddings(vectors, createdAt);
     }
 
     /** Системный промпт: A — с блоком памяти, B — тот же каркас без него. */
@@ -141,6 +143,16 @@ public final class Arms {
                 config.llmAnswerApiKey(),
                 config.llmAnswerModel(),
                 config.llmAnswerReasoningEffort());
+        // селекция дайджеста (E7): группа llm.embedding.* заполнена целиком → плечо A
+        // получает top-K фактов вместо полного слепка; параметры отбора — в answer_fp
+        EmbeddingClient embeddings = config.selectionEnabled()
+                ? new EmbeddingClient(config.llmEmbeddingBaseUrl(), config.llmEmbeddingApiKey(),
+                        config.llmEmbeddingModel())
+                : null;
+        if (embeddings != null) {
+            System.out.printf("[ARMS] read-time селекция: model=%s, top-k=%d (параметры селекции — в answer_fp)%n",
+                    config.llmEmbeddingModel(), config.digestTopK());
+        }
         List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(config.datasetFile()));
         String answerFp = Fingerprints.answerFp(config);
 
@@ -236,7 +248,21 @@ public final class Arms {
                         continue;
                     }
                     List<RawMessage> window = windowMessages(log, w0, point.sourceMessageId());
-                    String digest = memoryDigest(snapshotJson);
+                    String digest;
+                    if (embeddings == null) {
+                        digest = memoryDigest(snapshotJson);
+                    } else {
+                        double[] triggerVector = embeddings.embedOne(point.trigger());
+                        llmCalls++; // эмбеддинг-вызов триггера — та же экономика прогона
+                        if (triggerVector.length != DigestSelector.EMBEDDING_DIMS) {
+                            throw new IllegalStateException(("point %s: провайдер отдал размерность %d, "
+                                    + "а facts.embedding vector(%d) — смесь векторов несовместима")
+                                    .formatted(point.id(), triggerVector.length, DigestSelector.EMBEDDING_DIMS));
+                        }
+                        FactEmbeddings factVectors = factEmbeddings(conn, snapshotJson);
+                        digest = DigestSelector.render(snapshotJson, triggerVector,
+                                factVectors.vectors(), factVectors.createdAt(), config.digestTopK());
+                    }
                     if (digest.isBlank()) {
                         System.out.printf("[ARMS] point %s: snapshot is empty — arm A degrades to B%n", point.id());
                     }

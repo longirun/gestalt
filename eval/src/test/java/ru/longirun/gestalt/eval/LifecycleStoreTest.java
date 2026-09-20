@@ -280,7 +280,7 @@ class LifecycleStoreTest {
                 "https://llm", "key", "qwen", "low",
                 "https://llm", "key", "", "low",
                 "", "", "",
-                20, 2000, 5, "user:t", "project:t", "dataset/points.jsonl");
+                20, 2000, 5, 50, "user:t", "project:t", "dataset/points.jsonl");
         List<EvalPoint> points = List.of(new EvalPoint("p1", "L1", "lme-abc", 10,
                 "t", "tr", List.of(), List.of(), null, null, null, null));
         String ingestFp = Fingerprints.ingestFp(config, points);

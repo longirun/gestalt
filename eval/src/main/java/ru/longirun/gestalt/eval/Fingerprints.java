@@ -1,6 +1,7 @@
 package ru.longirun.gestalt.eval;
 
 import ru.longirun.gestalt.eval.extract.ExtractionPrompt;
+import ru.longirun.gestalt.eval.portrait.DigestSelector;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,13 +32,25 @@ public final class Fingerprints {
         return sha256(sb.toString());
     }
 
-    /** hash(отвечающая модель + reasoning-effort + arms-промпт + окно N); шаблон — systemPrompt с sentinel-дайджестом. */
+    /**
+     * hash(отвечающая модель + reasoning-effort + arms-промпт + окно N); шаблон — systemPrompt с sentinel-дайджестом.
+     * Селекция дайджеста (35 §2.3) добавляет строку selection: меняется любой параметр
+     * отбора — перезапись ответов; строка отсутствует при выключенной селекции — fp
+     * байт-в-байт совпадает с доселекционной эпохой, кэш E6 не инвалидируется.
+     */
     public static String answerFp(EvalConfig config) {
         StringBuilder sb = new StringBuilder("answer-v1\n");
         sb.append("model: ").append(config.llmAnswerModel()).append('\n');
         sb.append("reasoning-effort: ").append(config.llmAnswerReasoningEffort()).append('\n');
         sb.append("prompt: ").append(sha256(Arms.systemPrompt("<fingerprint-sentinel>"))).append('\n');
         sb.append("window: ").append(config.windowSize());
+        if (config.selectionEnabled()) {
+            sb.append('\n').append("selection: model=").append(config.llmEmbeddingModel())
+                    .append(", dims=").append(DigestSelector.EMBEDDING_DIMS)
+                    .append(", top-k=").append(config.digestTopK())
+                    .append(", threshold=none")
+                    .append(", tie-break=sim-desc/rein-desc/created-asc");
+        }
         return sha256(sb.toString());
     }
 

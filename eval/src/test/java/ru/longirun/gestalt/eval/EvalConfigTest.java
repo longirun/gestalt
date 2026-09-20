@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Конфиг eval из properties-файла: дефолты и чтение значений.
@@ -27,6 +29,8 @@ class EvalConfigTest {
         assertEquals("", config.targetDbPassword());
         assertEquals(20, config.batchMaxMessages());
         assertEquals(2000, config.batchMaxTokens());
+        assertEquals(50, config.digestTopK());
+        assertFalse(config.selectionEnabled(), "без llm.embedding.* селекции нет");
         assertEquals("dataset/points.jsonl", config.datasetFile());
         assertEquals("", config.sourceDbUrl());
         assertEquals("", config.sourceDayFrom());
@@ -128,5 +132,32 @@ class EvalConfigTest {
                 "явное значение llm.answer.model не перекрывается");
         assertEquals("", config.llmAnswerReasoningEffort(),
                 "reasoning-effort отвечающей модели не наследует llm.reasoning-effort");
+    }
+
+    @Test
+    void embeddingGroupIsAllOrNothingForSelection() throws IOException {
+        Path file = tempDir.resolve("embedding.properties");
+        Files.writeString(file, String.join("\n",
+                "llm.embedding.base-url=https://embed.example/api/v1",
+                "llm.embedding.api-key=embed-key",
+                "llm.embedding.model=bge-m3",
+                "digest.top-k=30"));
+        EvalConfig config = EvalConfig.load(file);
+
+        assertTrue(config.selectionEnabled(), "полная группа включает селекцию");
+        assertEquals(30, config.digestTopK());
+        assertFalse(EvalConfig.load(tempDir.resolve("partial.properties")).selectionEnabled());
+    }
+
+    @Test
+    void partialEmbeddingGroupDisablesSelection() throws IOException {
+        Path file = tempDir.resolve("no-model.properties");
+        Files.writeString(file, String.join("\n",
+                "llm.embedding.base-url=https://embed.example/api/v1",
+                "llm.embedding.api-key=embed-key"));
+        EvalConfig config = EvalConfig.load(file);
+
+        assertFalse(config.selectionEnabled(),
+                "группа без модели = селекция выключена, а не полуселекция");
     }
 }
