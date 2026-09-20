@@ -21,6 +21,13 @@ llm.answer.api-key=
 llm.answer.model=
 llm.answer.reasoning-effort=
 
+# Эмбеддинг-провайдер top-K селекции дайджеста (правка A, концепт 16): bge-m3 —
+# кросс-линг RU→EN (триггеры русские, statements английские); отдельный провайдер,
+# наследования от llm.* нет; ключ можно передать env EMBEDDING_API_KEY
+llm.embedding.base-url=https://routerai.ru/api/v1
+llm.embedding.api-key=
+llm.embedding.model=baai/bge-m3
+
 # Диапазон дней среза включительно (сессия берётся из sourceSession точек датасета);
 # портрет к T копится со всех дней диапазона (план 31 §2.5)
 source.day-from=

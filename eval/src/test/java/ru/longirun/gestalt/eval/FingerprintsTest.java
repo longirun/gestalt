@@ -23,6 +23,7 @@ class FingerprintsTest {
                 "jdbc:postgresql://localhost:5433/gestalt_eval", "u", "p",
                 "https://llm", "key", model, "low",
                 "https://llm", "key", answerModel, "low",
+                "", "", "",
                 batchMessages, 2000, window, "user:t", "project:t", "dataset/points.jsonl");
     }
 
@@ -112,6 +113,7 @@ class FingerprintsTest {
                 c.targetDbUrl(), c.targetDbUser(), c.targetDbPassword(),
                 c.llmBaseUrl(), c.llmApiKey(), c.llmModel(), effort,
                 c.llmAnswerBaseUrl(), c.llmAnswerApiKey(), c.llmAnswerModel(), answerEffort,
+                c.llmEmbeddingBaseUrl(), c.llmEmbeddingApiKey(), c.llmEmbeddingModel(),
                 c.batchMaxMessages(), c.batchMaxTokens(), c.windowSize(),
                 c.portraitOwner(), c.portraitProject(), c.datasetFile());
     }
