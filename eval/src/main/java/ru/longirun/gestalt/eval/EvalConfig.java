@@ -7,9 +7,13 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 /**
- * Конфиг eval: eval/local.properties (вне VCS) + env-переопределения (LLM_API_KEY).
- * Поля llm.answer.* резолвнуты при load(): blank base-url/api-key/model наследуют
- * экстракционные llm.*, reasoning-effort независим (плечо ответа управляется явно).
+ * Конфиг eval: eval/local.properties (вне VCS) + env-переопределения (LLM_API_KEY,
+ * EMBEDDING_API_KEY). Поля llm.answer.* резолвнуты при load(): blank
+ * base-url/api-key/model наследуют экстракционные llm.*, reasoning-effort независим
+ * (плечо ответа управляется явно). Группа llm.embedding.* наследования не имеет:
+ * эмбеддинги обслуживает отдельный провайдер (routerai/bge-m3, как в honcho) —
+ * пустые значения означают «селекция дайджеста недоступна», стадии, которым
+ * нужны векторы, обязаны отказывать громко, а не деградировать молча.
  */
 public record EvalConfig(
         String sourceDbUrl, String sourceDbUser, String sourceDbPassword,
@@ -17,6 +21,7 @@ public record EvalConfig(
         String targetDbUrl, String targetDbUser, String targetDbPassword,
         String llmBaseUrl, String llmApiKey, String llmModel, String llmReasoningEffort,
         String llmAnswerBaseUrl, String llmAnswerApiKey, String llmAnswerModel, String llmAnswerReasoningEffort,
+        String llmEmbeddingBaseUrl, String llmEmbeddingApiKey, String llmEmbeddingModel,
         int batchMaxMessages, int batchMaxTokens,
         int windowSize,
         String portraitOwner, String portraitProject,
@@ -32,6 +37,10 @@ public record EvalConfig(
         String apiKey = props.getProperty("llm.api-key", "");
         if (System.getenv("LLM_API_KEY") != null) {
             apiKey = System.getenv("LLM_API_KEY");
+        }
+        String embeddingApiKey = props.getProperty("llm.embedding.api-key", "");
+        if (System.getenv("EMBEDDING_API_KEY") != null) {
+            embeddingApiKey = System.getenv("EMBEDDING_API_KEY");
         }
         // source.day — одиночный день (устаревший вариант); source.day-from/to — диапазон включительно
         String day = props.getProperty("source.day", "");
@@ -72,6 +81,9 @@ public record EvalConfig(
                 answerApiKey,
                 answerModel,
                 props.getProperty("llm.answer.reasoning-effort", ""),
+                props.getProperty("llm.embedding.base-url", ""),
+                embeddingApiKey,
+                props.getProperty("llm.embedding.model", ""),
                 Integer.parseInt(props.getProperty("batch.max-messages", "20")),
                 Integer.parseInt(props.getProperty("batch.max-tokens", "2000")),
                 Integer.parseInt(props.getProperty("window.size", "5")),
