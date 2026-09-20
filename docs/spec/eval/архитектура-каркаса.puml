@@ -84,7 +84,7 @@ Builder -down-> Snaps
 ' Keep Sources aligned above Replay pipeline
 Replay -[hidden]down-> Sources
 
-' Lifecycle: PG — источник истины (план 31 §7)
+' Lifecycle: PG — источник истины (спека 35 §2)
 package "gestalt_eval — источник истины" as Lifecycle {
   [Experiments\nреестр, ingest_fp / answer_fp] as Exps
   [Runs\nстадия, статус, экономика] as RunsTbl
