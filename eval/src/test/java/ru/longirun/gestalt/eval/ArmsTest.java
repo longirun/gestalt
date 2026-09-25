@@ -18,8 +18,8 @@ class ArmsTest {
     @Test
     void digestPrefersStatementAndSkipsEmptySections() {
         String snapshot = """
-                {"critical":[{"subject":"user","predicate":"","object":"","statement":"Never mention X"}],
-                 "constructs":[{"subject":"user","predicate":"education_degree","object":"Business Administration"}],
+                {"critical":[{"id":"11111111-1111-1111-1111-111111111111","subject":"user","predicate":"","object":"","statement":"Never mention X"}],
+                 "constructs":[{"id":"22222222-2222-2222-2222-222222222222","subject":"user","predicate":"education_degree","object":"Business Administration"}],
                  "preferences":[]}
                 """;
 
