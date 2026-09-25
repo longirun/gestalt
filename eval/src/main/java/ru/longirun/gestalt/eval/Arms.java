@@ -36,6 +36,19 @@ import java.util.UUID;
  */
 public final class Arms {
 
+    /**
+     * Каркас системного промпта обоих плеч (review.txt §3): долгосрочная память названа
+     * явно — без этого модель буквально следует «based on the recent conversation»
+     * и игнорирует блок памяти ниже. Входит в answer_fp (Fingerprints, §7.2).
+     */
+    static final String SYSTEM_PROMPT_BASE = """
+            You are a helpful assistant. Answer the user's question briefly and factually, using recent \
+            conversation and project-specific memory (conventions, infrastructure, naming, architectural \
+            decisions) where applicable.""";
+
+    /** Заголовок блока памяти в системном промпте плеча A. */
+    static final String MEMORY_BLOCK_HEADER = "=== Long-term memory about the user (from earlier conversations) ===";
+
     private Arms() {
     }
 
@@ -81,15 +94,12 @@ public final class Arms {
         return new FactEmbeddings(vectors, createdAt);
     }
 
-    /** Системный промпт: A — с блоком памяти, B — тот же каркас без него. */
+    /** Системный промпт: A — каркас + блок памяти, B — тот же каркас без него. */
     static String systemPrompt(String memoryDigest) {
-        String base = "You are a helpful assistant. Answer the user's question briefly and factually, "
-                + "based on the provided recent conversation.";
         if (memoryDigest == null || memoryDigest.isBlank()) {
-            return base;
+            return SYSTEM_PROMPT_BASE;
         }
-        return base + "\n\n=== Long-term memory about the user (from earlier conversations) ===\n"
-                + memoryDigest;
+        return SYSTEM_PROMPT_BASE + "\n\n" + MEMORY_BLOCK_HEADER + "\n" + memoryDigest;
     }
 
     /** Пользовательская часть: стенограмма окна (W0, M) + вопрос M (оба плеча видят одинаково). */
