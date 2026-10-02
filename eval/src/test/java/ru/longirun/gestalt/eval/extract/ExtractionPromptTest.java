@@ -18,19 +18,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ExtractionPromptTest {
 
     @Test
-    void rulesOrderMatchesJsonFields() {
+    void sectionsAndFieldOrderMatchStructure() {
         String template = ExtractionPrompt.SYSTEM_TEMPLATE;
 
-        int posKind = template.indexOf("1. kind:");
-        int posSubject = template.indexOf("2. subject:");
-        int posPredicate = template.indexOf("3. predicate:");
-        int posObject = template.indexOf("4. object:");
-        int posStatement = template.indexOf("5. statement:");
-        int posDomain = template.indexOf("6. domain:");
-        int posScope = template.indexOf("7. scope:");
-        int posConditions = template.indexOf("8. conditions:");
-        int posEvidence = template.indexOf("9. evidence_ids:");
-        int posFilter = template.indexOf("10. Filtering:");
+        int posFact = template.indexOf("## What becomes a fact");
+        int posFormat = template.indexOf("## Output format");
+        int posSemantics = template.indexOf("## Field semantics");
+        int posVerbatim = template.indexOf("## Verbatim contract");
+        int posVocabulary = template.indexOf("## Vocabulary");
+        int posExamples = template.indexOf("## Examples");
+
+        assertTrue(posFact >= 0 && posFact < posFormat);
+        assertTrue(posFormat < posSemantics);
+        assertTrue(posSemantics < posVerbatim);
+        assertTrue(posVerbatim < posVocabulary);
+        assertTrue(posVocabulary < posExamples);
+
+        // Field semantics follow the JSON schema order
+        int posKind = template.indexOf("- kind:", posSemantics);
+        int posSubject = template.indexOf("- subject:", posSemantics);
+        int posPredicate = template.indexOf("- predicate:", posSemantics);
+        int posObject = template.indexOf("- object:", posSemantics);
+        int posStatement = template.indexOf("- statement:", posSemantics);
+        int posDomain = template.indexOf("- domain:", posSemantics);
+        int posScope = template.indexOf("- scope:", posSemantics);
+        int posConditions = template.indexOf("- conditions:", posSemantics);
+        int posEvidence = template.indexOf("- evidence_ids:", posSemantics);
 
         assertTrue(posKind >= 0 && posKind < posSubject);
         assertTrue(posSubject < posPredicate);
@@ -40,13 +53,18 @@ class ExtractionPromptTest {
         assertTrue(posDomain < posScope);
         assertTrue(posScope < posConditions);
         assertTrue(posConditions < posEvidence);
-        assertTrue(posEvidence < posFilter);
 
-        // Verify that kind explains STATE, NARRATIVE, and EVENT
+        // kind explains STATE, NARRATIVE, and EVENT
         String kindSection = template.substring(posKind, posSubject);
-        assertTrue(kindSection.contains("STATE:"));
-        assertTrue(kindSection.contains("NARRATIVE:"));
-        assertTrue(kindSection.contains("EVENT:"));
+        assertTrue(kindSection.contains("STATE ="));
+        assertTrue(kindSection.contains("NARRATIVE ="));
+        assertTrue(kindSection.contains("EVENT ="));
+
+        // Verbatim contract: the enumerated-set rule and the empty-output example
+        String verbatimSection = template.substring(posVerbatim, posVocabulary);
+        assertTrue(verbatimSection.contains("ONE"));
+        assertTrue(verbatimSection.contains("never translate"));
+        assertTrue(template.contains("Output: []"));
     }
 
     @Test

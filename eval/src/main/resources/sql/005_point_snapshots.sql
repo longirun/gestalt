@@ -1,11 +1,8 @@
 -- Writer-проход §7 (план 31, 2026-09-13): канонизация пер-точечных слепков M/W0
 -- (§7.5 — portrait_snapshots хранит только последний слепок на owner+project,
 -- пер-точечная история жила в out/snapshots) + стадия wcheck в истории прогонов.
-
--- wcheck пишет wchecks — артефакт эксперимента; обвязка стадий требует run-записи
-ALTER TABLE runs DROP CONSTRAINT IF EXISTS runs_stage_check;
-ALTER TABLE runs ADD CONSTRAINT runs_stage_check
-    CHECK (stage IN ('replay', 'arms', 'oracles', 'report', 'migrate', 'wcheck'));
+-- Эволюцию runs_stage_check не трогаем: единственная точка истины — 009_embed_stage.sql
+-- (миграции без журнала применяются все, финальное определение ставит 009).
 
 -- Пер-точечные слепки replay: payload — канонический json слепка байт-в-байт
 -- (TEXT, не JSONB: без нормализации PG — детерминированный дифф между прогонами);
