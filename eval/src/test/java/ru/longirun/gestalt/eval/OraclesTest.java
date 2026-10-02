@@ -57,6 +57,21 @@ class OraclesTest {
     }
 
     @Test
+    void thousandsSeparatorsDoNotBreakNumberMatching() {
+        // урок reference-v1 REF-5: верный ответ «19 544 строки» резался форматированием
+        assertTrue(Oracles.matches("отчёт должен вернуть **19 544 строки**", "19544"));
+        assertTrue(Oracles.matches("about 19,544 rows", "19544"));
+        assertTrue(Oracles.matches("19'544 Zeilen", "19544"));
+        assertTrue(Oracles.matches("19\u00A0544 rows", "19544"), "неразрывный пробел");
+        assertTrue(Oracles.matches("1 234 567 rows", "1234567"), "цепочка разрядов");
+        assertTrue(Oracles.matches("the answer is 19544", "19 544"), "симметрия: маркер тоже нормализуется");
+        // склейка не расширяет числовую эквивалентность
+        assertFalse(Oracles.matches("only 1954 rows", "19544"));
+        assertFalse(Oracles.matches("19 5444 rows", "19544"), "4 цифры справа — не разряд");
+        assertFalse(Oracles.matches("19,5 percent", "195"), "десятичная запятая — не разделитель тысяч");
+    }
+
+    @Test
     void morphologicalAndParaphraseMissesAreJudgeTier() {
         // документируем семантику smoke-яруса: всё ниже — промах для машинного оракула
         assertFalse(Oracles.matches("at a downtown sports store", "the sports store downtown"));

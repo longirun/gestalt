@@ -42,7 +42,9 @@ public final class Oracles {
     }
 
     /** Маркер найден в ответе. Языко-независимая нижняя граница (smoke-ярус): lowercase,
-     * ё→е, срез markdown-разметки (урок LME-3d86fd0a: «a **coffee shop**»), вхождение
+     * ё→е, срез markdown-разметки (урок LME-3d86fd0a: «a **coffee shop**»), нормализация
+     * разрядов чисел (урок reference-v1 REF-5: верный ответ «19 544 строки» резался
+     * форматированием), вхождение
      * с Unicode-границами слов ([\p{L}\p{N}] — ловля ревью 2026-09-14: ASCII-only класс
      * [A-Za-z0-9] считал кириллицу разделителем — «тест» ложно матчился в «тесты»,
      * «протест») — «18» не совпадает с «180», «тест» не совпадает с «тестирование».
@@ -53,13 +55,21 @@ public final class Oracles {
         if (answer == null || marker == null || marker.isBlank()) {
             return false;
         }
-        String haystack = answer.toLowerCase().replace('ё', 'е').replaceAll("[*_`#\"]+", "");
-        String needle = marker.toLowerCase().replace('ё', 'е').strip();
+        String haystack = stripThousands(answer.toLowerCase().replace('ё', 'е').replaceAll("[*_`#\"]+", ""));
+        String needle = stripThousands(marker.toLowerCase().replace('ё', 'е').strip());
         if (needle.isBlank()) {
             return false;
         }
         Pattern p = Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(needle) + "(?![\\p{L}\\p{N}])");
         return p.matcher(haystack).find();
+    }
+
+    /** Разделители разрядов между цифрами («19 544» / «19,544» / «19'544» / NBSP ≡ «19544») —
+     * типографика локали, не другое число: срез до матчинга, симметрично с обеих сторон.
+     * Склейка только при ровно трёх цифрах справа — десятичные («19,5») и обычные пробелы
+     * не затрагиваются. */
+    private static String stripThousands(String s) {
+        return s.replaceAll("(?<=\\d)[ \\u00A0\\u202F',](?=\\d{3}(?!\\d))", "");
     }
 
     static ArmVerdict verdict(String answer, List<String> must, List<String> mustNot) {
