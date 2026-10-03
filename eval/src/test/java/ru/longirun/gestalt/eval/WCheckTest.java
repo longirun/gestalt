@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * W-проверка (план 31 §2.9): вердикты фактов по evidence относительно W0
+ * W-проверка (спека 28 §5.1): вердикты фактов по evidence относительно W0
  * (последняя реплика вне окна): valid / in-window / lag / unknown.
  */
 class WCheckTest {

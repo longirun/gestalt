@@ -1,4 +1,4 @@
--- Lifecycle экспериментов (план 31 §7.1, решение 2026-09-13): PG — источник истины
+-- Lifecycle экспериментов (спека 28 §5.2, решение 2026-09-13): PG — источник истины
 -- для всего, что записал прибор; out/ — стираемый дамп. Реестр экспериментов + история
 -- прогонов (экономика — вторым заходом) + пер-точечные результаты.
 
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     material        TEXT NOT NULL,
     dataset_ref     TEXT,
     config_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
-    -- NULL у архивных записей, зарегистрированных до введения реестра (§7.4)
+    -- NULL у архивных записей, зарегистрированных до введения реестра
     ingest_fp       TEXT,
     answer_fp       TEXT,
     status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS runs (
 
 CREATE INDEX IF NOT EXISTS idx_runs_experiment ON runs (experiment, started_at);
 
--- Ответы плеч (контракт A/B, план 31 §3): пара (experiment, point, arm); run_id — автор
+-- Ответы плеч (контракт A/B, спека 28 §5.2.2): пара (experiment, point, arm); run_id — автор
 -- записи для каскадного удаления прогона (перезаписанные позже ответы переживают удаление)
 CREATE TABLE IF NOT EXISTS answers (
     experiment        TEXT NOT NULL REFERENCES experiments(slug) ON DELETE CASCADE,

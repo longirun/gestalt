@@ -83,8 +83,8 @@ public final class Report {
     }
 
     /**
-     * Читает вердикты эксперимента из gestalt_eval (§7 — PG источник истины), пишет
-     * out/report.md (генерируемый артефакт, §7.5) и сводку в консоль. Прогон регистрируется
+     * Читает вердикты эксперимента из gestalt_eval (спека 28 §5.2 — PG источник истины), пишет
+     * out/report.md (генерируемый артефакт, спека 28 §5.2.1) и сводку в консоль. Прогон регистрируется
      * в runs (writer-проход: история отчётов). Слаг не задан → единственный активный
      * эксперимент; иначе ошибка со списком.
      */
@@ -99,7 +99,7 @@ public final class Report {
             ResultStore results = new ResultStore(conn);
             int stale = runs.interruptStale(experiment, "report");
             if (stale > 0) {
-                System.out.printf("[REPORT] %d застрявших running-прогонов report помечены interrupted (§7.3)%n", stale);
+                System.out.printf("[REPORT] %d застрявших running-прогонов report помечены interrupted (спека 28 §5.2.4)%n", stale);
             }
             long runId = runs.start(experiment, "report", "сводный отчёт из вердиктов PG");
             try {
@@ -139,7 +139,7 @@ public final class Report {
 
         StringBuilder md = new StringBuilder();
         md.append("# Gestalt eval — E5 report\n\n");
-        md.append(String.format("Эксперимент: `%s` (вердикты из gestalt_eval, §7).%n", experiment));
+        md.append(String.format("Эксперимент: `%s` (вердикты из gestalt_eval, спека 28 §5.2).%n", experiment));
         md.append(String.format("Машинный оракул (нижняя граница; парафразы/морфология — ярус судьи).%n%n"));
         md.append("| метрика | значение |\n|---|---|\n");
         md.append(String.format("| точек (без leak-veto) | %d |%n", s.n()));

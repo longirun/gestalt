@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Спан-инварианты И1–И3, И5 (спека 33 §4): trigger ⊆ реплика M, truth ⊆ реплика-якорь,
+ * Спан-инварианты И1–И3, И5 (спека 28 §6.3): trigger ⊆ реплика M, truth ⊆ реплика-якорь,
  * маркеры ветви вне (W0, M] (W0 исключён — инжестируется в память; M включён — giveaway),
  * mustNot не матчится внутри must, якорь истины строго после M.
  * Вердикты ok/span-miss/in-window/marker-collision/causality/unanchored/skip.

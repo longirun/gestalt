@@ -72,7 +72,7 @@ public final class EvalRunner {
 
     /**
      * Выгрузка реплик дня в eval/data/candidates.jsonl для ручного просмотра и viewer'а
-     * (план 31 §E2): `run -Pargs='candidates <session>'`; день — source.day конфига.
+     * (спека 28 §6.1): `run -Pargs='candidates <session>'`; день — source.day конфига.
      * Перезаписывает файл: день статичен (прошлое лога), выгрузка детерминирована.
      */
     private static void runCandidates(EvalConfig config, String[] args) throws Exception {
@@ -105,7 +105,7 @@ public final class EvalRunner {
     }
 
     /**
-     * Аудит датасета спан-инвариантами И1–И3 (спека 33 §4): 0 LLM, 0 PG — валидатор
+     * Аудит датасета спан-инвариантами И1–И3 (спека 28 §6.3): 0 LLM, 0 PG — валидатор
      * дешевле любой стадии прибора, мусор отсекается до replay. `validate [datasetPath]`:
      * без аргумента — dataset.file конфига, с аргументом — путь к jsonl (ретро-прогон
      * архивов без правки properties). Журнал разметки — out/validate.<имя-датасета>
@@ -152,7 +152,7 @@ public final class EvalRunner {
     }
 
     /**
-     * Replay живого лога до позиций точек (план 31 §2.9): слепок M — срез строго до
+     * Replay живого лога до позиций точек (спека 28 §5.1): слепок M — срез строго до
      * триггера (M exclusive: экстракция триггерной реплики возмущает портрет через
      * dedup/reconcile), для L1 дополнительно проба W0 = window_start(M) — слепок после
      * обработки реплик ≤ W0, база W-проверки. Работы (снятие W0-слепка на границе W0,
@@ -162,12 +162,12 @@ public final class EvalRunner {
      * Insufficient grid (M раньше N реплик от начала) — точка откладывается, не reject
      * и не слепок. Инвариант: в gestalt_eval попадают только факты из реплик,
      * обработанных до заморозки слепка.
-     * Writer-проход §7: слепки каноничны в snapshots (PG), out/snapshots — дамп;
+     * Writer-проход (спека 28 §5.2): слепки каноничны в snapshots (PG), out/snapshots — дамп;
      * прогон оборачивается в run (экономика, статусы, резюм = новый run).
      */
     private static void runReplay(EvalConfig config, String[] args) throws Exception {
         if (config.llmApiKey().isBlank()) {
-            throw new IllegalStateException("llm.api-key required: replay без LLM бессмыслен (план 31 §2.6)");
+            throw new IllegalStateException("llm.api-key required: replay без LLM бессмыслен");
         }
         List<EvalPoint> points = EvalDataset.load(EvalPaths.resolve(config.datasetFile()));
         if (config.portraitOwner().isBlank()
@@ -195,7 +195,7 @@ public final class EvalRunner {
             RunStore runs = new RunStore(conn);
             int stale = runs.interruptStale(experiment, "replay");
             if (stale > 0) {
-                System.out.printf("[REPLAY] %d застрявших running-прогонов replay помечены interrupted (§7.3)%n", stale);
+                System.out.printf("[REPLAY] %d застрявших running-прогонов replay помечены interrupted (спека 28 §5.2.4)%n", stale);
             }
             long runId = runs.start(experiment, "replay", "слепки → snapshots (PG) + дамп out/");
             long startedNanos = System.nanoTime();
@@ -366,7 +366,7 @@ public final class EvalRunner {
     }
 
     /**
-     * W0 = window_start(M) = последняя реплика ВНЕ окна (§2.9): окно плеч — (W0, M),
+     * W0 = window_start(M) = последняя реплика ВНЕ окна (спека 28 §5.1): окно плеч — (W0, M),
      * N реплик. Инвариант «max evidence-id ≤ W0» строго эквивалентен «происхождение
      * факта вне окна»: реплика W0 видимой плечам не является, поэтому рождение из неё
      * — честная работа памяти, а не подсказка из промпта (критика off-by-one, правка
@@ -393,9 +393,9 @@ public final class EvalRunner {
     }
 
     /**
-     * W-проверка L1-точек (план 31 §2.9): слепки W0 и M + evidence из gestalt_eval →
+     * W-проверка L1-точек (спека 28 §5.1): слепки W0 и M + evidence из gestalt_eval →
      * валидные факты-кандидаты покрытия (max evidence ≤ W0), in-window, encoding-lag.
-     * Writer-проход §7: слепки читает из snapshots (PG), результат пишет в wchecks (PG).
+     * Writer-проход (спека 28 §5.2): слепки читает из snapshots (PG), результат пишет в wchecks (PG).
      * Прогон оборачивается в run (история попыток).
      */
     private static void runWCheck(EvalConfig config, String[] args) throws Exception {
@@ -421,7 +421,7 @@ public final class EvalRunner {
             }
             int stale = runs.interruptStale(experiment, "wcheck");
             if (stale > 0) {
-                System.out.printf("[WCHECK] %d застрявших running-прогонов wcheck помечены interrupted (§7.3)%n", stale);
+                System.out.printf("[WCHECK] %d застрявших running-прогонов wcheck помечены interrupted (спека 28 §5.2.4)%n", stale);
             }
             long runId = runs.start(experiment, "wcheck", "W-проверка: слепки PG → wchecks PG");
             try {
@@ -508,7 +508,7 @@ public final class EvalRunner {
     }
 
     /**
-     * Конвертация LongMemEval → dataset/points.lme.jsonl (positive control каркаса, план 31):
+     * Конвертация LongMemEval → dataset/points.lme.jsonl (positive control E2-PC, спека 28 §6):
      * `run -Pargs='lme [types-csv] [limit]'`, дефолт single-session-user × 30; файл — source.lme.file.
      * C-точек в релизе LongMemEval нет (категория abstention отсутствует) — контроль молчания
      * остаётся за живым датасетом; портреты вопросов изолированы (project = sourceSession).
@@ -541,7 +541,7 @@ public final class EvalRunner {
 
     /**
      * Backfill facts.embedding для read-time селекции (E7): факты инжеста не зависят
-     * от эмбеддингов (ingest_fp селекцию не видит — 35 §2.3), поэтому догоняем векторы
+     * от эмбеддингов (ingest_fp селекцию не видит — спека 28 §5.2.3), поэтому догоняем векторы
      * отдельным этапом, а не в replay. Идемпотентен: берёт только NULL-строки, упавший
      * прогон продолжается с места обрыва. Прогон обёрнут в run (экономика: вызовы
      * эмбеддинга считаются в llm_calls; токенов /embeddings не отдаёт).
@@ -569,7 +569,7 @@ public final class EvalRunner {
             RunStore runs = new RunStore(conn);
             int stale = runs.interruptStale(experiment, "embed");
             if (stale > 0) {
-                System.out.printf("[EMBED] %d застрявших running-прогонов embed помечены interrupted (§7.3)%n", stale);
+                System.out.printf("[EMBED] %d застрявших running-прогонов embed помечены interrupted (спека 28 §5.2.4)%n", stale);
             }
             long runId = runs.start(experiment, "embed",
                     "backfill facts.embedding для селекции дайджеста (модель " + config.llmEmbeddingModel() + ")");
@@ -661,7 +661,7 @@ public final class EvalRunner {
     }
 
     /**
-     * История прогонов эксперимента (§7.3/§7.4): `runs [slug]` — экономика каждого
+     * История прогонов эксперимента (спека 28 §5.2.4): `runs [slug]` — экономика каждого
      * прогона (llm_calls/токены) и статусы; def — единственный active.
      */
     private static void runRuns(EvalConfig config, String[] args) throws Exception {
@@ -685,7 +685,7 @@ public final class EvalRunner {
         }
     }
 
-    /** Удаление прогона (§7.3 — штатная операция): `delrun <id>` — run + неперезаписанные артефакты каскадом. */
+    /** Удаление прогона (спека 28 §5.2.4 — штатная операция): `delrun <id>` — run + неперезаписанные артефакты каскадом. */
     private static void runDelRun(EvalConfig config, String[] args) throws Exception {
         if (args.length < 2 || args[1].isBlank()) {
             throw new IllegalArgumentException("usage: delrun <runId>");
@@ -702,8 +702,8 @@ public final class EvalRunner {
         }
     }
 
-    /** Lift на решённых парах + McNemar exact (α = 0.05), конструируемость; вердикты асимметричны (§4).
-     *  Аргумент — слаг эксперимента (не задан → единственный active); вердикты читает из PG (§7). */
+    /** Lift на решённых парах + McNemar exact (α = 0.05), конструируемость; вердикты асимметричны (спека 28 §4).
+     *  Аргумент — слаг эксперимента (не задан → единственный active); вердикты читает из PG (спека 28 §5.2). */
     private static void runReport(EvalConfig config, String[] args) throws Exception {
         Report.run(config, args.length > 1 && !args[1].isBlank() ? args[1] : null);
     }

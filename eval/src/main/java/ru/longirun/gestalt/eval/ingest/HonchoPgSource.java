@@ -11,8 +11,8 @@ import java.util.Properties;
 
 /**
  * Источник: honcho_memory (только чтение, read-only пользователь — ADR 24 §6).
- * Контрольный срез: session_name + диапазон дней включительно (план 31 §2.5:
- * срез — все дни сессии, портрет к T накапливается с ранних дней).
+ * Контрольный срез: session_name + диапазон дней включительно (срез — все дни
+ * сессии, портрет к T накапливается с ранних дней).
  */
 public final class HonchoPgSource implements MessageSource {
 

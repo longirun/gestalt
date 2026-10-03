@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Флаги совместимости прибора (§7.2): стабильность на одном конфиге, чувствительность
+ * Флаги совместимости прибора (спека 28 §5.2.3): стабильность на одном конфиге, чувствительность
  * к составным частям (модель/промпт-вход/батчинг/окно), идентичность источника по датасету.
  */
 class FingerprintsTest {

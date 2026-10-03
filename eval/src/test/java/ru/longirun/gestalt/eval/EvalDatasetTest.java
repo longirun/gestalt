@@ -69,8 +69,8 @@ class EvalDatasetTest {
     }
 
     @Test
-    void loadsSpanFieldsOfSpec33() throws IOException {
-        // спека 33 §3/§7: forkType + анкер истины truthMessageId
+    void loadsSpanFieldsOfSpec28() throws IOException {
+        // спека 28 §6.2/§6.6: forkType + анкер истины truthMessageId
         Path file = dataset(
                 "{\"id\":\"L1-000\",\"level\":\"L1\",\"sourceSession\":\"s\",\"sourceMessageId\":10,"
                         + "\"trigger\":\"спан реплики M\",\"truth\":\"спан реплики-носителя\","
@@ -84,7 +84,7 @@ class EvalDatasetTest {
 
     @Test
     void legacyPointsWithoutSpanFieldsLoadWithNulls() throws IOException {
-        // архивы 0911 и points.lme.jsonl размечены до спеки 33: полей нет — forkType/truthMessageId = null
+        // архивы 0911 и points.lme.jsonl размечены до протокола разметки (спека 28 §6): полей нет — forkType/truthMessageId = null
         Path file = dataset(
                 "{\"id\":\"L1-000\",\"level\":\"L1\",\"sourceSession\":\"s\",\"sourceMessageId\":10,"
                         + "\"trigger\":\"t\",\"truth\":\"r\",\"must\":[],\"mustNot\":[],\"coverage\":\"c\"}",

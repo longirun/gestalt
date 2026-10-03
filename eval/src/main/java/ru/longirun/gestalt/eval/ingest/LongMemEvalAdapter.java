@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * LongMemEval как источник лога (positive control каркаса, план 31; задел Р37 — внешние
+ * LongMemEval как источник лога (positive control E2-PC, спека 28 §6; задел Р37 — внешние
  * бенчмарки на том же каркасе). Каждый вопрос — изолированный микромир сессий: sourceSession
  * точки имеет вид {@code lme-<question_id>} и же служит портрет-проектом (слепки разных
  * вопросов не смешиваются). Реплика-вопрос добавляется в конец лога последней (peer user):

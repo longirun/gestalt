@@ -2,8 +2,7 @@
 
 Предиктивная метрика v1: тезис-чек «портрет несёт информацию о будущем поведении юзера».
 Парные плечи A/B (инъекция PortraitSnapshot против контроля), машинные оракулы, lift на решённых парах.
-Задание, рамка и статистика go/no-go — **[`../docs/spec/eval/28 - ADR eval-каркаса (Р45).md`](../docs/spec/eval/28%20-%20ADR%20eval-%D0%BA%D0%B0%D1%80%D0%BA%D0%B0%D1%81%D0%B0%20%28%D0%A045%29.md)**;
-протокол разметки живых точек — **[`../docs/spec/eval/33 - Протокол разметки живых точек (Р45).md`](../docs/spec/eval/33%20-%20Протокол%20разметки%20живых%20точек%20%28Р45%29.md)**;
+Задание, рамка, статистика go/no-go, операционный слой (§5) и протокол разметки живых точек (§6) — **[`../docs/spec/eval/28 - ADR eval-каркаса (Р45).md`](../docs/spec/eval/28%20-%20ADR%20eval-%D0%BA%D0%B0%D1%80%D0%BA%D0%B0%D1%81%D0%B0%20%28%D0%A045%29.md)**;
 порядок стадий и рабочий стол — **[`../drafts/31 - Рабочий стол eval-каркаса (Р45).md`](../drafts/31%20-%20Рабочий%20стол%20eval-%D0%BA%D0%B0%D1%80%D0%BA%D0%B0%D1%81%D0%B0%20%28%D0%A045%29.md)**;
 схема архитектуры и потока данных — **[`../docs/spec/eval/архитектура-каркаса.puml`](../docs/spec/eval/архитектура-каркаса.puml)**.
 
@@ -21,10 +20,10 @@ cp eval/local.properties.example eval/local.properties   # заполнить к
 продолжает с чекпоинта (`replay_checkpoints`). Для отладки без живого лога — `source.fixture`
 (путь к jsonl) + `dataset.file` на маленьком датасете. `candidates <sourceSession>` (E2): выгрузка
 реплик среза (`source.day-from/to`) в `data/candidates.jsonl` — вход живой разметки и viewer'а.
-`validate [dataset]` (спека 33): аудит датасета спан-инвариантами И1–И3 — trigger ⊆ реплика M,
+`validate [dataset]` (спека 28 §6.6): аудит датасета спан-инвариантами И1–И3, И5 — trigger ⊆ реплика M,
 truth ⊆ реплика-якорь `truthMessageId`, маркеры must/mustNot вне окна (W0, M], причинность;
 0 LLM/PG, аргумент — путь к jsonl (ретро-прогон архивов без правки properties); вердикты
-ok/span-miss/in-window/causality/unanchored (L1 до 33)/skip (LME) → журнал разметки
+ok/span-miss/in-window/marker-collision/causality/unanchored (L1)/skip (LME) → журнал разметки
 `out/validate.<датасет>`. `wcheck` (E2): W-проверка точек — факт-истина в слепке M с evidence ≤ W0 (W0 = последняя реплика
 вне окна); вердикты valid/in-window/lag/unknown. `arms [limit]` (E3): плечи A/B на триггерах —
 A с дайджестом слепка в системном промпте, B контроль; `temperature=0`, отвечающая модель
@@ -57,7 +56,7 @@ python3 eval/tools/judge_probe.py --exp <exp> --points id1,id2 [--no-cache]
 сырых вердиктов — `out/judge_probe_<exp>/` (изолирован по эксперименту — ответы плеч между
 экспериментами несравнимы).
 
-## Positive control: LongMemEval (E2-PC, план 31)
+## Positive control: LongMemEval (E2-PC, research/27)
 
 ```bash
 # local.properties: source.lme.file=data/lme/longmemeval_oracle.json (файлы — HF xiaowu0162/longmemeval, вне VCS)
@@ -93,7 +92,7 @@ valid-фактом, подстрока регистронезависимо — 
 4. **Конфиг**: `cp eval/local.properties.example eval/local.properties`, заполнить `llm.*` (ключ любого OpenAI-совместимого API; можно env `LLM_API_KEY`), `dataset.file=dataset/points.lme.jsonl`.
 5. **Проверка и прогон**:
    ```bash
-   ./gradlew -p eval run -Pargs=validate   # аудит датасета (спека 33: И1–И3; LME-точки — skip)
+   ./gradlew -p eval run -Pargs=validate   # аудит датасета (28 §6.3: И1–И3; LME-точки — skip)
    ./gradlew -p eval run -Pargs=all        # replay → arms → oracles → report (out/report.md)
    ```
 
@@ -101,7 +100,7 @@ valid-фактом, подстрока регистронезависимо — 
 Юнит-тесты без БД зелёные: PG-зависимые пропускаются при недоступном `:5433`.
 
 **Что воспроизводится — процедура, не биты.** Смена экстрактора/отвечающей модели = другой
-`ingest_fp`/`answer_fp` (Fingerprints, план 31 §7.2) = другой эксперимент с другими числами;
+`ingest_fp`/`answer_fp` (Fingerprints, спека 28 §5.2.3) = другой эксперимент с другими числами;
 калибровочные цифры (+48 pp, [`../docs/research/27 - Калибровка eval-каркаса на LongMemEval (Р45).md`](../docs/research/27%20-%20Калибровка%20eval-%D0%BA%D0%B0%D1%80%D0%BA%D0%B0%D1%81%D0%B0%20%D0%BD%D0%B0%20LongMemEval%20%28Р45%29.md)) привязаны к конфигурации калибровки. Это свойство
 объекта измерения (LLM), не дефект каркаса.
 
@@ -115,7 +114,7 @@ fingerprint'ы `ingest_fp`/`answer_fp`), история прогонов `runs` 
 arms-промпт/окно N) — перезапись ответов тем же экспериментом, слепки переиспользуются.
 
 Требования: JDK 21; живой лог — PG `:5433` только чтение (как в спайке); БД `gestalt_eval` на `:5433`
-(один раз, план 31 §2.1); ключ OpenAI-совместимого LLM-роутера. Поглощение кода спайка — ADR 28 §3.1
+(один раз при первом доступе к Honcho); ключ OpenAI-совместимого LLM-роутера. Поглощение кода спайка — ADR 28 §3.1
 (`spike/` не трогаем до архивации по Р34).
 
 ## Гигиена

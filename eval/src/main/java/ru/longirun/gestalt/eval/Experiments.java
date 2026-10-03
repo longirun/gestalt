@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Lifecycle-протокол реестра (план 31 §7.2, writer-проход): replay решает «продолжать
+ * Lifecycle-протокол реестра (спека 28 §5.2.3, writer-проход): replay решает «продолжать
  * или с нуля» по ingest_fp — совпал с active-экспериментом → продолжаем (новый run),
  * сменился → новый эксперимент (старый archived, read-only) с re-replay с нуля:
  * сбрасываем чекпоинты и факты owner/project датасета (слепки старого уже канонизированы
@@ -46,7 +46,7 @@ public final class Experiments {
     }
 
     /**
-     * Целевой эксперимент для replay (§7.2): slug задан — найти/создать; не задан —
+     * Целевой эксперимент для replay (спека 28 §5.2.3): slug задан — найти/создать; не задан —
      * единственный active с совпадающим ingest_fp. Создание нового — явное действие
      * (`replay <slug>`): прочие active уходят в archived, инжест-состояние сбрасывается.
      */
@@ -65,12 +65,12 @@ public final class Experiments {
             }
             ExperimentStore.Experiment experiment = existing.get();
             if ("archived".equals(experiment.status())) {
-                throw new IllegalStateException("эксперимент '%s' archived (read-only, §7.3): продолжение запрещено — "
+                throw new IllegalStateException("эксперимент '%s' archived (read-only, спека 28 §5.2.3): продолжение запрещено — "
                         .formatted(slugArg) + "слепки/вердикты читаются, записывать может только active");
             }
             if (!ingestFp.equals(experiment.ingestFp())) {
                 throw new IllegalStateException(("эксперимент '%s' построен с другим ingest_fp (%s ≠ %s): "
-                        + "смена инжест-конфига = новый эксперимент (§7.2), задай свежий слаг")
+                        + "смена инжест-конфига = новый эксперимент (спека 28 §5.2.3), задай свежий слаг")
                         .formatted(slugArg, Fingerprints.shortFp(experiment.ingestFp()), Fingerprints.shortFp(ingestFp)));
             }
             return slugArg;
@@ -78,7 +78,7 @@ public final class Experiments {
 
         List<ExperimentStore.Experiment> active = experiments.byStatus("active");
         if (active.isEmpty()) {
-            throw new IllegalStateException("нет активных экспериментов: `replay <slug>` создаст новый (§7.2); "
+            throw new IllegalStateException("нет активных экспериментов: `replay <slug>` создаст новый (спека 28 §5.2.3); "
                     + "реестр: " + knownSlugs(experiments));
         }
         if (active.size() > 1) {
@@ -90,7 +90,7 @@ public final class Experiments {
             return experiment.slug();
         }
         throw new IllegalStateException(("ingest-конфиг сменился с момента создания '%s' (%s ≠ %s): "
-                + "новый эксперимент = `replay <new-slug>` — '%s' уйдёт в archived, инжест начнётся с нуля (§7.2)")
+                + "новый эксперимент = `replay <new-slug>` — '%s' уйдёт в archived, инжест начнётся с нуля (спека 28 §5.2.3)")
                 .formatted(experiment.slug(), Fingerprints.shortFp(experiment.ingestFp()),
                         Fingerprints.shortFp(ingestFp), experiment.slug()));
     }
@@ -104,10 +104,10 @@ public final class Experiments {
             experiments.upsert(other.slug(), other.material(), other.datasetRef(), other.configSnapshot(),
                     other.ingestFp(), other.answerFp(), "archived", other.note());
             archived++;
-            System.out.printf("[EXP] experiment %s → archived (сменился ingest_fp, §7.2)%n", other.slug());
+            System.out.printf("[EXP] experiment %s → archived (сменился ingest_fp, спека 28 §5.2.3)%n", other.slug());
         }
         experiments.upsert(slug, material(config, points), config.datasetFile(), snapshot,
-                ingestFp, answerFp, "active", "создан replay (writer §7.2)");
+                ingestFp, answerFp, "active", "создан replay (writer, спека 28 §5.2.3)");
         int resetFacts = resetIngestState(conn, config, points);
         System.out.printf("[EXP] experiment %s: создан (material %s, ingest_fp %s), archived %d, "
                         + "инжест-состояние сброшено: %d фактов owner/project удалено, чекпоинты сессий снесены — "
@@ -151,7 +151,7 @@ public final class Experiments {
         return firstLive.isEmpty() ? "unknown" : "live/" + firstLive + (hasLme ? "+lme" : "");
     }
 
-    /** Снимок конфига прибора для config_snapshot (что влияло на результат, §7.1). */
+    /** Снимок конфига прибора для config_snapshot (что влияло на результат, спека 28 §5.2.2). */
     static String configSnapshot(EvalConfig config) {
         ObjectNode node = MAPPER.createObjectNode();
         node.put("llm.model", config.llmModel());

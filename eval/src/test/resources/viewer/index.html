@@ -279,7 +279,7 @@
           <div class="field"><label for="f-truth">truth — что юзер реально сделал дальше (выдели спан в «будущем» → «⟶ истина»)</label>
             <textarea id="f-truth"></textarea></div>
           <div class="row-flex">
-            <div class="field"><label for="f-forkType">forkType — категория развилки (словарь fork_types, спека 33 §6)</label>
+            <div class="field"><label for="f-forkType">forkType — категория развилки (словарь fork_types, спека 28 §6.5)</label>
               <select id="f-forkType" style="min-width:200px"></select></div>
             <div class="field"><label for="f-truth-id">truthMessageId — анкер истины (id реплики-носителя спана)</label>
               <input id="f-truth-id" type="number" min="1" style="width:110px"></div>
@@ -357,7 +357,7 @@ const hint = (t) => `<p class="hint">${t}</p>`;
 const PREFIX_LEN = 10;
 
 const REJECT_NOTES = {
-  "poor-log": "не выводимо из префикса — лог бедный (диагноз канона §4.3: сменить/добрать источник)",
+  "poor-log": "не выводимо из префикса — лог бедный (диагноз — спека 28 §4.3: сменить/добрать источник)",
   "no-fork": "знание не меняет ответ — плечи ответят одинаково",
   "in-window": "происхождение факта в окне — плечо B видит то же дословно",
   "encoding": "сигнала в слепке нет — Encoding не извлёк",
@@ -444,7 +444,7 @@ async function parseJsonl(resp) {
              .filter(Boolean);
 }
 
-/** Словарь forkType (спека 33 §6) из gestalt_eval; недоступна — пустой select. */
+/** Словарь forkType (спека 28 §6.5) из gestalt_eval; недоступна — пустой select. */
 function loadForkTypes() {
   return fetch("/api/fork-types").then(r => r.json())
     .then(list => { state.forkTypes = Array.isArray(list) ? list : []; })
@@ -895,7 +895,7 @@ function renderHead(m, p) {
   const o = p && oracleAt(p.id);
   const badges = [
     p ? `<span class="lvl ${p.level}">${esc(p.level)}</span> <b>${esc(p.id)}</b>` : `<b>кандидат #${m.id}</b>`,
-    p && p.forkType ? `<span class="badge marked" title="категория развилки (словарь fork_types, спека 33 §6)">${esc(p.forkType)}</span>` : "",
+    p && p.forkType ? `<span class="badge marked" title="категория развилки (словарь fork_types, спека 28 §6.5)">${esc(p.forkType)}</span>` : "",
     `<span class="hint">M #${m.id} · ${esc((m.time || "").slice(0, 16).replace("T", " "))}</span>`,
     j ? (j.verdict === "taken"
         ? `<span class="badge pass">✔ взят</span>`
@@ -973,7 +973,7 @@ function renderTimeline(m) {
   $("origin").innerHTML = originSummary(m, prefix, windowMsgs, future);
 }
 
-/** Эвристика выводимости (§2.9 шаг 2): в каких зонах встречаются must-маркеры. Подстрока ≠ знание — только подсказка. */
+/** Эвристика выводимости (спека 28 §5.1): в каких зонах встречаются must-маркеры. Подстрока ≠ знание — только подсказка. */
 function originSummary(m, prefix, windowMsgs, future) {
   const p = pointAt(m);
   let terms = p
@@ -1025,7 +1025,7 @@ function renderWhy(m, p, jArg) {
         ? `<p style="color:var(--ok)">Ответ ✔ — must-ответ анкерован valid-фактом (Encoding извлёк факт-ответ)</p>`
         : `<p style="color:var(--warn)">Ответ ✘ — must-ответ не найден среди valid-фактов (строгая подстрока: парафразы считаются промахом)</p>`;
   } else {
-    html += hint(`точки на #${m.id} нет — кандидат. Порядок разметки (§2.9): паттерн → выводимость из префикса
+    html += hint(`точки на #${m.id} нет — кандидат. Порядок разметки (спека 28 §5.1): паттерн → выводимость из префикса
       (эвристика под таймлайном) → развилка M → форма → сохранить → replay → wcheck.`);
   }
   if (j) html += j.verdict === "taken"
@@ -1115,7 +1115,7 @@ function renderAB(p) {
   const arms = state.answers[p.id] || {};
   if (!o && !arms.a && !arms.b) {
     box.innerHTML = hint(`плечи не прогонялись: <code>./gradlew -p eval run -Pargs=arms</code> →
-      <code>…=oracles</code> → ⟳.<br>эксперимент: <code>${esc(state.currentExp || "—")}</code> (данные из gestalt_eval, §7)`);
+      <code>…=oracles</code> → ⟳.<br>эксперимент: <code>${esc(state.currentExp || "—")}</code> (данные из gestalt_eval, спека 28 §5.2)`);
     return;
   }
   const terms = [...(p.must || []), ...(p.mustNot || [])].map(t => norm(t).trim()).filter(Boolean);
@@ -1180,7 +1180,7 @@ async function fillSnapshot(p) {
 /**
  * Выводы, уже лежащие в production-базе (gestalt_spike), с evidence — из каких реплик выведен факт.
  * Отбор: must-маркеры точки (для C — и mustNot: реальна ли утечка) в тексте факта, либо evidence
- * в префиксе/окне/M. Классификация по W0 — та же семантика, что W-проверка (§2.9).
+ * в префиксе/окне/M. Классификация по W0 — та же семантика, что W-проверка (спека 28 §5.1).
  */
 function renderProdFacts() {
   const box = $("prodFacts"), hintEl = $("prodHint");
@@ -1260,7 +1260,7 @@ const highlightTruth = (text) => highlightTerms(text, truthTerms());
 
 /** Подсветка вхождений нормализованных термов: текст и термы обрабатываются одинаково
  *  (esc + lowercase + ё→е). groups: [{terms, cls}] — cls вешается на <mark>
- *  ("" — жёлтая общая, span-t — триггер, span-truth — истина; спека 33 §7-4). */
+ *  ("" — жёлтая общая, span-t — триггер, span-truth — истина; спека 28 §6.6). */
 function highlightGroups(text, groups) {
   const applicable = groups.filter(g => g.terms.some(Boolean));
   if (!applicable.length) return esc(text);
@@ -1361,7 +1361,7 @@ function flash(text) {
   flashTimer = setTimeout(() => el.style.display = "none", 3500);
 }
 
-/* ── фиксация спанов выделением (спека 33 §3: вырезка + анкер, §7-4) ── */
+/* ── фиксация спанов выделением (спека 28 §6.2: вырезка + анкер, §6.6) ── */
 
 let selCarrier = null;
 function hideSelbar() { $("selbar").style.display = "none"; }

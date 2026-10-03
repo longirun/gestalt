@@ -42,7 +42,7 @@ public final class CheckpointStore {
         }
     }
 
-    /** Сброс курсора сессии (§7.2: смена ingest_fp = re-replay с нуля). */
+    /** Сброс курсора сессии (спека 28 §5.2.3: смена ingest_fp = re-replay с нуля). */
     public void reset(String sessionId) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement(
                 "DELETE FROM replay_checkpoints WHERE session_id = ?")) {

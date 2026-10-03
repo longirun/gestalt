@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Словарь forkType (спека 33 §6) против живого PG (gestalt_eval, localhost:5433): при
+ * Словарь forkType (спека 28 §6.5) против живого PG (gestalt_eval, localhost:5433): при
  * недоступной БД класс skip'ается (assumption). Self-cleanup — удаление только своей
  * категории (ключ test_&lt;uuid&gt;). DDL inline (как LifecycleStoreTest): полный
  * SchemaMigrator под не-owner падает на уже мигрированной БД.
@@ -68,7 +68,7 @@ class ForkTypeStoreTest {
     void seedCategoriesPresent() throws SQLException {
         ForkTypeStore store = new ForkTypeStore(connection);
         List<String> keys = store.list().stream().map(ForkTypeStore.ForkType::key).toList();
-        // seed миграции 006 (спека 33 §6): категории project
+        // seed миграции 006 (спека 28 §6.5): категории project
         assertTrue(keys.containsAll(List.of("tech-choice", "known-pitfall", "acceptance", "rollback")),
                 "seed-категории должны быть: " + keys);
     }
