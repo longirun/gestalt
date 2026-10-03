@@ -9,13 +9,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Пер-точечные результаты эксперимента (план 31 §7.1): answers (контракт A/B плеч),
+ * Пер-точечные результаты эксперимента (спека 28 §5.2.2): answers (контракт A/B плеч),
  * verdicts (оракулы E4), wchecks (W-проверка E2). Payload-колонки хранят канонический
  * json артефакта — viewer и отчёт читают БД, out/ остаётся стираемым дампом.
  */
 public final class ResultStore {
 
-    /** Ответ плеча: поля контракта answers (план 31 §3); point_fp — валидность строки (Fingerprints.pointFp). */
+    /** Ответ плеча: поля контракта answers (спека 28 §5.2.2); point_fp — валидность строки (Fingerprints.pointFp). */
     public record AnswerRow(
             String pointId, String arm, String pointFp, String answer, String model,
             Long tokens, Long promptTokens, Long completionTokens,
@@ -112,7 +112,7 @@ public final class ResultStore {
     }
 
     /**
-     * Снос всех ответов эксперимента (§7.2 rewrite): ответы чужого answer_fp не имеют права
+     * Снос всех ответов эксперимента (спека 28 §5.2.3 rewrite): ответы чужого answer_fp не имеют права
      * оставаться — lift/проценты считаются по смешению поколений. Возвращает число удалённых строк.
      */
     public int deleteAnswers(String experiment) throws SQLException {

@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Lifecycle-хранилища (§7.1) против живого PG (gestalt_eval, localhost:5433): при
+ * Lifecycle-хранилища (спека 28 §5.2.2) против живого PG (gestalt_eval, localhost:5433): при
  * недоступной БД класс skip'ается (assumption). Self-cleanup — удаление только своего
  * эксперимента (slug test_&lt;uuid&gt;) каскадом по FK. DDL — inline (как CheckpointStoreTest):
  * полный SchemaMigrator под не-owner падает на уже мигрированной БД.
@@ -292,7 +292,7 @@ class LifecycleStoreTest {
     }
 
     /**
-     * Протокол replay-эксперимента (§7.2): продолжение при совпадении ingest_fp,
+     * Протокол replay-эксперимента (спека 28 §5.2.3): продолжение при совпадении ingest_fp,
      * громкий отказ при смене fp и записи в archived. Ветку создания (архивирует
      * все active) на живой БД не проверяем — она деструктивна для реального реестра.
      */

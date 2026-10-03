@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Валидатор спан-инвариантов И1–И3 (спека 33 §4): машинный аудит того, что билет —
+ * Валидатор спан-инвариантов И1–И3 (спека 28 §6.3): машинный аудит того, что билет —
  * проекция живого лога, а не творчество разметчика (галлюцинации generator'а,
  * перефразировка, giveaway в окне). Чистая функция от (точка, сырой лог, окно N),
  * 0 LLM; срабатывает до дорогих стадий (replay жжёт токены экстракции).
@@ -27,7 +27,7 @@ import java.util.List;
  * ok — инварианты соблюдены; span-miss — И1 (спан не найден в реплике-носителе,
  * включая M/якор вне лог-среза); in-window — И2 (маркер в окне);
  * marker-collision — И5 (mustNot внутри must); causality — И3
- * (якор истины не после M); unanchored — legacy-точка до спеки 33 (L1 без
+ * (якор истины не после M); unanchored — legacy-точка до протокола разметки 28 §6 (L1 без
  * truthMessageId: И1-truth/И3 непроверяемы, И1-trigger/И2 проверяются); skip — LME
  * (вопросы авторов бенчмарка, спан-инварианты неприменимы). C-точки: И1 — только по
  * trigger, И2 — по mustNot, И3 — неприменим (истины нет).
@@ -58,7 +58,7 @@ public final class SpanValidator {
      * @param point      точка датасета;
      * @param log        сырой лог сессии точки (тот же срез, что читают replay/wcheck/arms);
      * @param windowSize окно N из конфига прибора;
-     * @param lme        LME-точка (sourceSession вида lme-&lt;qid&gt;): спан-инварианты skip (спека 33 §1)
+     * @param lme        LME-точка (sourceSession вида lme-&lt;qid&gt;): спан-инварианты skip (спека 28 §6)
      */
     public static PointVerdict validate(EvalPoint point, List<RawMessage> log, int windowSize, boolean lme) {
         List<String> details = new ArrayList<>();

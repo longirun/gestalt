@@ -9,7 +9,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * window_start(M) = последняя реплика ВНЕ окна (§2.9, правка off-by-one 2026-09-11):
+ * window_start(M) = последняя реплика ВНЕ окна (спека 28 §5.1, правка off-by-one 2026-09-11):
  * окно плеч — (W0, M), N реплик; инвариант «max evidence ≤ W0» ⇔ «происхождение вне окна».
  */
 class WindowStartTest {

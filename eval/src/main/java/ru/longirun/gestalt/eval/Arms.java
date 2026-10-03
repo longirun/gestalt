@@ -30,7 +30,7 @@ import java.util.UUID;
  * PortraitSnapshot в системном промпте (полный, либо top-K по косинусу к триггеру при
  * включённой селекции llm.embedding.*, E7), B — контроль без памяти. Одинаковая модель
  * (llm.answer.* — резолвнутые значения, см. EvalConfig.load), temperature 0. Канон ответов — gestalt_eval.answers
- * (§7 writer: {answer, model, tokens, latencyMs, at, promptTokens, completionTokens});
+ * (спека 28 §5.2.2: {answer, model, tokens, latencyMs, at, promptTokens, completionTokens});
  * существующие пары в PG не перегенерируются — кэш плеч замораживается (ADR 28),
  * пока answer_fp не сменился.
  */
@@ -39,7 +39,7 @@ public final class Arms {
     /**
      * Каркас системного промпта обоих плеч (review.txt §3): долгосрочная память названа
      * явно — без этого модель буквально следует «based on the recent conversation»
-     * и игнорирует блок памяти ниже. Входит в answer_fp (Fingerprints, §7.2).
+     * и игнорирует блок памяти ниже. Входит в answer_fp (Fingerprints, спека 28 §5.2.3).
      */
     static final String SYSTEM_PROMPT_BASE = """
             You are a helpful assistant. Answer the user's question briefly and factually, using recent \
@@ -124,7 +124,7 @@ public final class Arms {
         };
     }
 
-    /** Реплики окна (W0, M): строго между границей W0 и триггером M (§2.9). */
+    /** Реплики окна (W0, M): строго между границей W0 и триггером M (спека 28 §5.1). */
     static List<RawMessage> windowMessages(List<RawMessage> log, long w0, long m) {
         List<RawMessage> window = new ArrayList<>();
         for (RawMessage message : log) {
@@ -137,9 +137,9 @@ public final class Arms {
 
     /**
      * Прогон плеч по точкам датасета: `arms [limit]` — limit = сколько новых пар сгенерировать
-     * (0/отсутствие = все). Writer-проход §7: канон ответов — gestalt_eval.answers;
-     * заморозка кэша = пара (a,b) в PG с совпавшим point_fp (answer_fp + trigger +
-     * позиция точки). Смена answer_fp (§7.2) — полная перезапись
+      * (0/отсутствие = все). Writer-проход (спека 28 §5.2): канон ответов — gestalt_eval.answers;
+      * заморозка кэша = пара (a,b) в PG с совпавшим point_fp (answer_fp + trigger +
+      * позиция точки). Смена answer_fp (спека 28 §5.2.3) — полная перезапись
      * ответов новым run: старые answers эксперимента сносятся до цикла (слепки
      * переиспользуются); точки без слепка/окна остаются без ответа до появления грида.
      * Прогон оборачивается в run: экономика (llm_calls, токены плеч) видна в runs.
@@ -188,13 +188,13 @@ public final class Arms {
                 experiments.upsert(exp.slug(), exp.material(), exp.datasetRef(), exp.configSnapshot(),
                         exp.ingestFp(), answerFp, exp.status(), exp.note());
                 System.out.printf("[ARMS] answer_fp сменился (%s ≠ %s): полная перезапись ответов новым run, "
-                                + "слепки переиспользуются (§7.2)%n",
+                                + "слепки переиспользуются (спека 28 §5.2.3)%n",
                         Fingerprints.shortFp(exp.answerFp()), Fingerprints.shortFp(answerFp));
             }
 
             int stale = runs.interruptStale(experiment, "arms");
             if (stale > 0) {
-                System.out.printf("[ARMS] %d застрявших running-прогонов arms помечены interrupted (§7.3)%n", stale);
+                System.out.printf("[ARMS] %d застрявших running-прогонов arms помечены interrupted (спека 28 §5.2.4)%n", stale);
             }
             long runId = runs.start(experiment, "arms",
                     rewrite ? "перезапись ответов: answer_fp сменился" : "ответы → answers (PG) + дамп out/");
@@ -210,7 +210,7 @@ public final class Arms {
                 }
                 if (rewrite) {
                     int purged = results.deleteAnswers(experiment);
-                    System.out.printf("[ARMS] rewrite: удалено %d ответов прежнего answer_fp (§7.2)%n", purged);
+                    System.out.printf("[ARMS] rewrite: удалено %d ответов прежнего answer_fp (спека 28 §5.2.3)%n", purged);
                 } else {
                     // валидность строки = её точка есть в датасете и point_fp совпал
                     // (answer_fp + trigger + позиция): правка trigger в разметке не
@@ -310,7 +310,7 @@ public final class Arms {
                 generated, cached, skipped, llmCalls, promptTokens, completionTokens);
     }
 
-    /** Канон — answers в PG (§7). */
+    /** Канон — answers в PG (спека 28 §5.2). */
     private static void persist(ResultStore results, String experiment,
                                 String pointId, String arm, String pointFp, LlmClient.ChatResult result, String model,
                                 long latencyMs, long runId, OffsetDateTime at) throws Exception {

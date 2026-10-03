@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Пер-точечные слепки replay (план 31 §7.5, writer-проход): канон в PG — portrait_snapshots
+ * Пер-точечные слепки replay (спека 28 §5.2.1): канон в PG — portrait_snapshots
  * хранит только последний слепок на пару owner+project, история M/W0-проб точек раньше
  * жила лишь в out/snapshots. Payload — каноническая строка слепка байт-в-байт (TEXT);
  * run_id — автор записи для каскадного удаления прогона (перезаписанные переживают).

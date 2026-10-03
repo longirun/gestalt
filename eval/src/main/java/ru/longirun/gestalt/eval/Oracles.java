@@ -89,8 +89,8 @@ public final class Oracles {
     }
 
     /**
-     * Прогон оракулов по точкам с материализованными ответами плеч (gestalt_eval.answers,
-     * §7 writer): точки без пары ответов пропускаются (плечи не прогонялись). Вердикты
+      * Прогон оракулов по точкам с материализованными ответами плеч (gestalt_eval.answers,
+      * спека 28 §5.2): точки без пары ответов пропускаются (плечи не прогонялись). Вердикты
      * пишутся в verdicts (PG — источник истины; viewer и E5 читают PG).
      * Прогон оборачивается в run (история попыток).
      */
@@ -109,7 +109,7 @@ public final class Oracles {
 
             int stale = runs.interruptStale(experiment, "oracles");
             if (stale > 0) {
-                System.out.printf("[ORACLE] %d застрявших running-прогонов oracles помечены interrupted (§7.3)%n", stale);
+                System.out.printf("[ORACLE] %d застрявших running-прогонов oracles помечены interrupted (спека 28 §5.2.4)%n", stale);
             }
             long runId = runs.start(experiment, "oracles", "машинные оракулы: ответы PG → вердикты PG");
             try {

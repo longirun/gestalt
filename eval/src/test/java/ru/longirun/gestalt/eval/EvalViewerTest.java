@@ -38,14 +38,14 @@ import ru.longirun.gestalt.eval.store.PointSnapshotStore;
 import ru.longirun.gestalt.eval.store.ResultStore;
 
 /**
- * Рабочий стол разметчика E2 (план 31 §2.7): поднимает HttpServer со статикой и API,
+ * Рабочий стол разметчика (спека 28 §6.6): поднимает HttpServer со статикой и API,
  * разметчик работает в браузере. Стоп теста в IDE = стоп сервера. Тег "viewer" исключён
  * из дефолтного gradlew test — запускать только явно из IDE.
  * Входы (файлы, вне VCS): точки датасета, журнал разметки; слепки — файловый кэш out/snapshots.
- * Результаты прибора (§7): answers/verdicts/wchecks — из gestalt_eval, эксперимент выбирается
+ * Результаты прибора (спека 28 §5.2): answers/verdicts/wchecks — из gestalt_eval, эксперимент выбирается
  * ?exp=<slug> (по умолчанию единственный active). День (/api/day): LME-точки получают лог из
  * LongMemEval-файла, live-точки — из data/candidates.jsonl; формат строк одинаков.
- * Экран — точка-центричный (план 31 §2.7): досье точки (таймлайн, why, coverage, истина, A/B).
+ * Экран — точка-центричный (спека 28 §6.6): досье точки (таймлайн, why, coverage, истина, A/B).
  */
 @Tag("viewer")
 class EvalViewerTest {
@@ -303,7 +303,7 @@ class EvalViewerTest {
         }
     }
 
-    /** Словарь forkType (спека 33 §6): ключи fork_types из gestalt_eval; БД недоступна —
+    /** Словарь forkType (спека 28 §6.5): ключи fork_types из gestalt_eval; БД недоступна —
      *  пустой список (select с единственной пустой опцией, разметчик вводит ключ руками). */
     private void sendForkTypes(HttpExchange ex, EvalConfig config) throws IOException {
         List<String> keys = new ArrayList<>();
@@ -445,7 +445,7 @@ class EvalViewerTest {
         respond(ex, 200, Files.readString(file));
     }
 
-    /** Реестр экспериментов (§7): список + диагностика выбора (?exp= или единственный active). */
+    /** Реестр экспериментов (спека 28 §5.2): список + диагностика выбора (?exp= или единственный active). */
     private void sendExperiments(HttpExchange ex, EvalConfig config, String requested) throws IOException {
         com.fasterxml.jackson.databind.node.ObjectNode root = MAPPER.createObjectNode();
         try (Connection c = DriverManager.getConnection(
@@ -520,7 +520,7 @@ class EvalViewerTest {
         }
     }
 
-    /** Ответы плеч (E3) из gestalt_eval (§7): агрегат {pointId: {a:…, b:…}}, формат полей — как в answers. */
+    /** Ответы плеч (E3) из gestalt_eval (спека 28 §5.2): агрегат {pointId: {a:…, b:…}}, формат полей — как в answers. */
     private void sendAnswers(HttpExchange ex, EvalConfig config, String requested) throws IOException {
         com.fasterxml.jackson.databind.node.ObjectNode root = MAPPER.createObjectNode();
         String experiment = resolveExperimentOrNull(config, requested);
@@ -549,7 +549,7 @@ class EvalViewerTest {
     }
 
     /** Выводы, уже лежащие в production-базе фактов: viewer показывает их с evidence — из каких
-     *  реплик среза выведен каждый факт (план 31 §2.7, read-only). Для чистого LME-датасета
+     *  реплик среза выведен каждый факт (спека 28 §6.6, read-only). Для чистого LME-датасета
      *  секция не релевантна: микромиры LongMemEval в production не инжестятся. */
     private void sendProdFacts(HttpExchange ex, Path dataDir, Path pointsFile, EvalConfig config,
                                DbCreds prodDb, String requestedExp) throws IOException {
@@ -652,8 +652,8 @@ class EvalViewerTest {
                 props.getProperty("prod.db.password", ""));
     }
 
-    /** Append черновика/точки в points-file. Правка существующих — руками в IDE (план 31 §2.7).
-     *  Спан-поля протокола 33: truth обязателен только для L1 (у C истины нет — §3),
+    /** Append черновика/точки в points-file. Правка существующих — руками в IDE (спека 28 §6.6).
+     *  Спан-поля протокола разметки (спека 28 §6): truth обязателен только для L1 (у C истины нет — §6.2),
      *  truthMessageId/forkType опциональны на вводе (пробелы в разметке ловит validate). */
     private void appendPoint(HttpExchange ex, Path pointsFile) throws IOException {
         JsonNode body = readBody(ex);
@@ -677,11 +677,11 @@ class EvalViewerTest {
             return;
         }
         if ("L1".equals(level) && body.path("truth").asText("").isBlank()) {
-            respond(ex, 400, "{\"error\":\"truth required for L1 (span of the future log, spec 33 §3)\"}");
+            respond(ex, 400, "{\"error\":\"truth required for L1 (span of the future log, spec 28 §6.2)\"}");
             return;
         }
         if ("C".equals(level) && body.path("mustNot").isEmpty()) {
-            respond(ex, 400, "{\"error\":\"C-point requires mustNot leak markers (plan 31 §E2)\"}");
+            respond(ex, 400, "{\"error\":\"C-point requires mustNot leak markers (spec 28 §6.2)\"}");
             return;
         }
         Set<String> existing = new HashSet<>();
@@ -701,7 +701,7 @@ class EvalViewerTest {
         respond(ex, 200, "{\"ok\":true,\"id\":\"" + escape(id) + "\"}");
     }
 
-    /** Журнал разметки (план 31 §2.8): candidateId, session (LME-сессии нумеруют реплики каждая
+    /** Журнал разметки (спека 28 §5.1): candidateId, session (LME-сессии нумеруют реплики каждая
      *  с единицы — идентификатор кандидата только в паре с сессией), verdict taken|rejected,
      *  reason, pointId, at. */
     private void appendJournal(HttpExchange ex, Path journalFile) throws IOException {

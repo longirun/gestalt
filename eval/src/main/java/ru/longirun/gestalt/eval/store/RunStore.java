@@ -9,11 +9,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Прогоны стадий (план 31 §7.1/§7.3): история попыток — в базе, а не в именах логов.
+ * Прогоны стадий (спека 28 §5.2.2/§5.2.4): история попыток — в базе, а не в именах логов.
  * Резюм = новый run (старый помечен interrupted/failed), продолжающий работу с
  * чекпоинтов (replay) или существующих пар (arms). Экономика прогона — llm_calls
  * и токены — обновляется на лету (progress — Live-панель viewer'а) и финализируется
- * при finish (writer-проход §7).
+ * при finish (writer-проход, спека 28 §5.2).
  */
 public final class RunStore {
 
@@ -24,7 +24,7 @@ public final class RunStore {
             OffsetDateTime startedAt, OffsetDateTime finishedAt, String note) {
     }
 
-    /** Итог удаления прогона (§7.3): run + неперезаписанные артефакты (каскад). */
+    /** Итог удаления прогона (спека 28 §5.2.4): run + неперезаписанные артефакты (каскад). */
     public record RunDeletion(
             long id, String experiment, String stage, String status,
             int deletedAnswers, int deletedSnapshots) {
@@ -122,7 +122,7 @@ public final class RunStore {
     }
 
     /**
-     * Удаление прогона (§7.3 — штатная операция): run + записанные им и не перезаписанные
+     * Удаление прогона (спека 28 §5.2.4 — штатная операция): run + записанные им и не перезаписанные
      * позже артефакты (answers.run_id, snapshots.run_id — FK CASCADE; перезаписанные позже
      * ответы/слепки несут чужой run_id и выживают). Возвращает итог для печати.
      */
