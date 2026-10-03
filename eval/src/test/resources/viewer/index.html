@@ -174,6 +174,20 @@
   mark.span-t { background: #dce8fc; color: #2b6fd6; }
   mark.span-truth { background: #d9f1e1; color: #237a46; }
   .badge.truth { background: #d9f1e1; color: var(--ok); }
+  .badge.ok { background: #d9f1e1; color: var(--ok); }
+  .badge.err { background: #fde2e1; color: #b3261e; }
+  /* replay live (E8) */
+  #liveScreen { max-width: 980px; margin: 18px auto; }
+  .live-col { padding: 16px 20px; }
+  .live-head { display: flex; align-items: baseline; gap: 12px; }
+  .live-title { font-size: 18px; font-weight: 700; }
+  .live-counters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+  .lc { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); }
+  .lc-k { font-size: 11px; color: var(--dim); text-transform: uppercase; }
+  .lc-v { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .live-barwrap { height: 14px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--panel); }
+  .live-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #4a90e2, #3b82f6); transition: width .6s; }
+  #liveChart { width: 100%; display: block; margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 </style>
 </head>
 <body>
@@ -182,6 +196,7 @@
   <div class="tabs">
     <span class="tab active" id="tabPoints" onclick="setMode('points')">точки</span>
     <span class="tab" id="tabLog" onclick="setMode('log')">лог разметки</span>
+    <span class="tab" id="tabLive" onclick="setMode('live')">replay live</span>
   </div>
   <label class="hint" style="display:flex;align-items:center;gap:6px">
     эксп:
@@ -298,6 +313,20 @@
     </div>
   </div>
 </main>
+
+<div id="liveScreen" style="display:none">
+  <div class="col live-col">
+    <div class="live-head">
+      <div class="live-title">replay · <span id="liveExp"></span></div>
+      <div class="live-status" id="liveStatus"></div>
+    </div>
+    <div class="live-counters" id="liveCounters"></div>
+    <div class="live-barwrap"><div class="live-bar" id="liveBar"></div></div>
+    <div class="hint" id="liveBarLabel" style="margin-top:4px"></div>
+    <canvas id="liveChart" height="220"></canvas>
+    <div class="hint" id="liveDetail" style="margin-top:8px"></div>
+  </div>
+</div>
 
 <div id="bottom">
   <div class="col">
@@ -512,8 +541,15 @@ function renderStats() {
 
 function setMode(mode) {
   state.listMode = mode;
+  const isLive = mode === "live";
   $("tabPoints").classList.toggle("active", mode === "points");
   $("tabLog").classList.toggle("active", mode === "log");
+  $("tabLive").classList.toggle("active", isLive);
+  document.querySelector("main").style.display = isLive ? "none" : "";
+  $("bottom").style.display = isLive ? "none" : "";
+  $("liveScreen").style.display = isLive ? "" : "none";
+  if (isLive) { liveStart(); return; }
+  liveStop();
   $("leftTitle").innerHTML = mode === "points"
     ? "Точки и кандидаты"
     : `Реплики среза <span class="hint" id="dayInfo"></span>`;
@@ -521,6 +557,141 @@ function setMode(mode) {
   const pf = $("pointFilters");
   if (pf) pf.style.display = mode === "points" ? "flex" : "none";
   renderLeft();
+}
+
+/* ── replay live (E8): опрос /api/replay-live, счётчики, прогресс, график скорости ── */
+
+const liveState = { timer: null, hist: [] };
+
+function liveStart() {
+  liveStop();
+  livePoll();
+  liveState.timer = setInterval(livePoll, 2000);
+}
+
+function liveStop() {
+  if (liveState.timer) { clearInterval(liveState.timer); liveState.timer = null; }
+}
+
+async function livePoll() {
+  try {
+    const q = state.currentExp ? `?exp=${encodeURIComponent(state.currentExp)}` : "";
+    const r = await fetch("/api/replay-live" + q);
+    renderLive(await r.json());
+  } catch (e) {
+    renderLive({ running: false, reason: String(e) });
+  }
+}
+
+const fmtTok = (v) => v == null ? "—" :
+  v >= 1e6 ? (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? (v / 1e3).toFixed(1) + "K" : String(v);
+const fmtHms = (sec) => {
+  sec = Math.max(0, Math.round(sec));
+  return `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
+};
+
+function renderLive(d) {
+  if (!d.running) {
+    $("liveStatus").innerHTML = `<span class="badge err">нет телеметрии</span> ${esc(d.reason || "")}`;
+    $("liveCounters").innerHTML = "";
+    $("liveBar").style.width = "0%";
+    $("liveBarLabel").textContent = "";
+    $("liveDetail").textContent = "";
+    liveState.hist = [];
+    drawLiveChart();
+    return;
+  }
+  $("liveExp").textContent = d.experiment;
+  const run = d.run || {};
+  const cur = d.cursor || {};
+  const total = d.total || 0, proc = d.processed || 0;
+  const pct = total ? Math.min(100, proc * 100 / total) : 0;
+  const isRunning = run.status === "running";
+  $("liveStatus").innerHTML = run.id
+    ? `run #${run.id} · <span class="badge ${isRunning ? "ok" : "err"}">${esc(run.status || "")}</span>`
+    : "прогонов replay ещё не было";
+  const vel = liveVelocity();
+  const eta = vel > 0 && isRunning ? (total - proc) / vel : null;
+  const counters = [
+    ["позиция", `${proc} / ${total}`],
+    ["вызовы LLM", run.llmCalls ?? "—"],
+    ["токены prompt", fmtTok(run.promptTokens)],
+    ["токены completion", fmtTok(run.completionTokens)],
+    ["факты", d.facts ?? "—"],
+    ["слепки M/W0", `${(d.snapshots && d.snapshots.m) || 0} / ${(d.snapshots && d.snapshots.w0) || 0}`],
+    ["скорость", vel > 0 ? (vel * 60).toFixed(0) + " реп/мин" : "—"],
+    ["ETA", eta != null ? fmtHms(eta) : "—"],
+  ];
+  $("liveCounters").innerHTML = counters
+    .map(([k, v]) => `<div class="lc"><div class="lc-k">${k}</div><div class="lc-v">${v}</div></div>`).join("");
+  $("liveBar").style.width = pct.toFixed(1) + "%";
+  $("liveBarLabel").textContent =
+    `${pct.toFixed(1)}% · курсор #${cur.messageId ?? "—"} · запись БД ${cur.updatedAt ?? "—"}`;
+  $("liveDetail").textContent =
+    `сессия: ${d.session} · точек: ${d.points ?? "—"} · опрос ${new Date().toLocaleTimeString()}`;
+  liveState.hist.push({ t: Date.now(), proc, facts: d.facts || 0 });
+  if (liveState.hist.length > 600) liveState.hist.shift();
+  drawLiveChart();
+}
+
+/** Средняя скорость инжеста, реплик/сек, по накопленной истории опросов. */
+function liveVelocity() {
+  const h = liveState.hist;
+  if (h.length < 2) return 0;
+  const a = h[0], b = h[h.length - 1];
+  const dt = (b.t - a.t) / 1000;
+  return dt > 0 ? Math.max(0, (b.proc - a.proc) / dt) : 0;
+}
+
+/** График скорости инжеста (реплик/мин по интервалам опроса) + средняя пунктиром. */
+function drawLiveChart() {
+  const cv = $("liveChart");
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 900, h = 220;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = "12px system-ui";
+  const hst = liveState.hist;
+  if (hst.length < 3) {
+    ctx.fillStyle = "#71798a";
+    ctx.fillText("накапливаю историю опросов (нужно ~3 точки, опрос раз в 2с)…", 12, 24);
+    return;
+  }
+  const pts = [];
+  for (let i = 1; i < hst.length; i++) {
+    const dt = (hst[i].t - hst[i - 1].t) / 60000;
+    if (dt > 0) pts.push({ t: hst[i].t, v: Math.max(0, (hst[i].proc - hst[i - 1].proc) / dt) });
+  }
+  if (!pts.length) { return; }
+  const max = Math.max(...pts.map(p => p.v), 1);
+  const avg = pts.reduce((s, p) => s + p.v, 0) / pts.length;
+  const padL = 48, padR = 12, padT = 20, padB = 20;
+  const cw = w - padL - padR, ch = h - padT - padB;
+  ctx.strokeStyle = "#e3e6ec"; ctx.fillStyle = "#71798a";
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + ch * i / 4;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    ctx.fillText((max * (4 - i) / 4).toFixed(0), 8, y + 4);
+  }
+  const bw = Math.max(1.5, cw / pts.length - 1);
+  ctx.fillStyle = "#3b82f6";
+  pts.forEach((p, i) => {
+    const x = padL + cw * i / (pts.length - 1);
+    const bh = ch * p.v / max;
+    ctx.fillRect(x - bw / 2, padT + ch - bh, bw, bh);
+  });
+  ctx.strokeStyle = "#237a46"; ctx.setLineDash([4, 4]);
+  const ay = padT + ch - ch * avg / max;
+  ctx.beginPath(); ctx.moveTo(padL, ay); ctx.lineTo(w - padR, ay); ctx.stroke();
+  ctx.setLineDash([]);
+  const tm = (d) => new Date(d).toTimeString().slice(0, 5);
+  ctx.fillStyle = "#71798a";
+  ctx.fillText(`реплик/мин · avg ${avg.toFixed(0)}`, padL, 13);
+  ctx.fillText(tm(pts[0].t), padL, h - 6);
+  const endLabel = tm(pts[pts.length - 1].t);
+  ctx.fillText(endLabel, w - padR - ctx.measureText(endLabel).width, h - 6);
 }
 
 function renderLeft() {

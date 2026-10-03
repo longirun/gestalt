@@ -226,6 +226,31 @@ class LifecycleStoreTest {
     }
 
     @Test
+    void runProgressLiveTelemetry() throws Exception {
+        ExperimentStore experiments = new ExperimentStore(connection);
+        RunStore runs = new RunStore(connection);
+        experiments.upsert(SLUG, "lme", null, "{}", null, null, "active", null);
+
+        long runId = runs.start(SLUG, "replay", "живая телеметрия");
+        runs.progress(runId, 5L, 800L, 300L);
+        RunStore.RunRow mid = runs.list(SLUG).stream()
+                .filter(r -> r.id() == runId).findFirst().orElseThrow();
+        assertEquals("running", mid.status(), "progress не меняет статус прогона");
+        assertEquals(5L, mid.llmCalls());
+        assertEquals(800L, mid.promptTokens());
+        assertEquals(300L, mid.completionTokens());
+
+        runs.progress(runId, 9L, 1_500L, 600L);
+        runs.finish(runId, "done", 10L, 2_000L, 900L);
+        RunStore.RunRow fin = runs.list(SLUG).stream()
+                .filter(r -> r.id() == runId).findFirst().orElseThrow();
+        assertEquals("done", fin.status());
+        assertEquals(10L, fin.llmCalls(), "finish перезаписывает промежуточную телеметрию финальной экономикой");
+        assertEquals(2_000L, fin.promptTokens());
+        assertEquals(900L, fin.completionTokens());
+    }
+
+    @Test
     void snapshotAndAnswerCascadeOnRunDelete() throws Exception {
         ExperimentStore experiments = new ExperimentStore(connection);
         RunStore runs = new RunStore(connection);

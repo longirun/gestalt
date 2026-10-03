@@ -2,6 +2,7 @@ package ru.longirun.gestalt.eval;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Tag;
@@ -112,6 +113,8 @@ class EvalViewerTest {
             sendAnswers(ex, config, exp);
         } else if ("GET".equals(method) && "/api/oracles".equals(path)) {
             sendLifecycleJsonl(ex, config, exp, "verdicts");
+        } else if ("GET".equals(method) && "/api/replay-live".equals(path)) {
+            sendReplayLive(ex, activePointsFile, config, exp);
         } else if ("GET".equals(method) && "/api/snapshots".equals(path)) {
             sendSnapshotList(ex, snapshotsDir, config, exp);
         } else if ("GET".equals(method) && path.startsWith("/api/snapshot/")) {
@@ -133,6 +136,8 @@ class EvalViewerTest {
             }
             byte[] body = in.readAllBytes();
             ex.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            // без этого браузер кэширует старую оболочку — табы/экраны выглядят протухшими
+            ex.getResponseHeaders().set("Cache-Control", "no-store");
             ex.sendResponseHeaders(200, body.length);
             try (OutputStream out = ex.getResponseBody()) {
                 out.write(body);
@@ -143,6 +148,159 @@ class EvalViewerTest {
     private void sendFileAsJsonl(HttpExchange ex, Path file) throws IOException {
         String body = Files.exists(file) ? Files.readString(file) : "";
         respond(ex, 200, body);
+    }
+
+    /**
+     * Live-телеметрия replay (E8, таб «replay live»): экономика прогона (RunStore.progress
+     * пишет на лету), курсор чекпоинтов, факты/слепки (gestalt_eval) и processed/total среза
+     * источника (honcho_memory — тот же фильтр дня, что у HonchoPgSource). Только чтение.
+     */
+    private void sendReplayLive(HttpExchange ex, Path pointsFile, EvalConfig config, String requestedExp) throws IOException {
+        String experiment = resolveExperimentOrNull(config, requestedExp);
+        String session = firstLiveSession(pointsFile, config);
+        ObjectNode n = MAPPER.createObjectNode();
+        if (experiment == null || session == null) {
+            n.put("running", false);
+            n.put("reason", experiment == null ? "нет active-эксперимента" : "в датасете нет live-сессии");
+            respond(ex, 200, n.toString());
+            return;
+        }
+        n.put("running", true);
+        n.put("experiment", experiment);
+        n.put("session", session);
+        try {
+            try (Connection c = DriverManager.getConnection(
+                    config.targetDbUrl(), config.targetDbUser(), config.targetDbPassword())) {
+                try (PreparedStatement ps = c.prepareStatement("""
+                        SELECT id, status, llm_calls, prompt_tokens, completion_tokens, started_at, finished_at
+                        FROM runs WHERE experiment = ? AND stage = 'replay' ORDER BY id DESC LIMIT 1
+                        """)) {
+                    ps.setString(1, experiment);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        ObjectNode run = n.putObject("run");
+                        if (rs.next()) {
+                            run.put("id", rs.getLong("id"));
+                            run.put("status", rs.getString("status"));
+                            putNullableLong(run, "llmCalls", rs.getObject("llm_calls"));
+                            putNullableLong(run, "promptTokens", rs.getObject("prompt_tokens"));
+                            putNullableLong(run, "completionTokens", rs.getObject("completion_tokens"));
+                            OffsetDateTime started = rs.getObject("started_at", OffsetDateTime.class);
+                            OffsetDateTime finished = rs.getObject("finished_at", OffsetDateTime.class);
+                            if (started != null) {
+                                run.put("startedAt", started.toString());
+                            }
+                            if (finished != null) {
+                                run.put("finishedAt", finished.toString());
+                            }
+                        } else {
+                            run.put("status", "none");
+                        }
+                    }
+                }
+                try (PreparedStatement ps = c.prepareStatement(
+                        "SELECT last_message_id, updated_at FROM replay_checkpoints WHERE session_id = ?")) {
+                    ps.setString(1, "session:" + session);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        ObjectNode cursor = n.putObject("cursor");
+                        if (rs.next()) {
+                            cursor.put("messageId", rs.getLong(1));
+                            cursor.put("updatedAt", String.valueOf(rs.getObject(2, OffsetDateTime.class)));
+                        } else {
+                            cursor.put("messageId", 0L);
+                        }
+                    }
+                }
+                try (PreparedStatement ps = c.prepareStatement(
+                        "SELECT count(*) FROM facts WHERE owner_id = ? AND project_id = ?")) {
+                    ps.setString(1, config.portraitOwner());
+                    ps.setString(2, config.portraitProject());
+                    try (ResultSet rs = ps.executeQuery()) {
+                        rs.next();
+                        n.put("facts", rs.getLong(1));
+                    }
+                }
+                ObjectNode snapshots = n.putObject("snapshots");
+                try (PreparedStatement ps = c.prepareStatement(
+                        "SELECT kind, count(*) FROM snapshots WHERE experiment = ? GROUP BY kind")) {
+                    ps.setString(1, experiment);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            snapshots.put(rs.getString(1), rs.getLong(2));
+                        }
+                    }
+                }
+                n.put("points", countPoints(pointsFile));
+            }
+            try (Connection c = DriverManager.getConnection(
+                    config.sourceDbUrl(), config.sourceDbUser(), config.sourceDbPassword())) {
+                String dayTo = config.sourceDayTo().isBlank() ? config.sourceDayFrom() : config.sourceDayTo();
+                long cursorId = n.path("cursor").path("messageId").asLong(0);
+                try (PreparedStatement ps = c.prepareStatement("""
+                        SELECT count(*) FROM messages
+                        WHERE session_name = ?
+                          AND date_trunc('day', created_at) BETWEEN ?::date AND ?::date
+                        """)) {
+                    ps.setString(1, session);
+                    ps.setString(2, config.sourceDayFrom());
+                    ps.setString(3, dayTo);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        rs.next();
+                        n.put("total", rs.getLong(1));
+                    }
+                }
+                try (PreparedStatement ps = c.prepareStatement("""
+                        SELECT count(*) FROM messages
+                        WHERE session_name = ?
+                          AND date_trunc('day', created_at) BETWEEN ?::date AND ?::date
+                          AND id <= ?
+                        """)) {
+                    ps.setString(1, session);
+                    ps.setString(2, config.sourceDayFrom());
+                    ps.setString(3, dayTo);
+                    ps.setLong(4, cursorId);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        rs.next();
+                        n.put("processed", rs.getLong(1));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            n.put("running", false);
+            n.put("reason", e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+        respond(ex, 200, n.toString());
+    }
+
+    /** Первая live-сессия датасета (sourceSession не-LME точки); точек может быть много — сессия одна. */
+    private String firstLiveSession(Path pointsFile, EvalConfig config) throws IOException {
+        if (!Files.exists(pointsFile)) {
+            return null;
+        }
+        for (String line : Files.readAllLines(pointsFile)) {
+            if (line.isBlank()) {
+                continue;
+            }
+            String session = MAPPER.readTree(line).path("sourceSession").asText();
+            if (!EvalRunner.isLme(config, session)) {
+                return session;
+            }
+        }
+        return null;
+    }
+
+    /** Число точек в активном датасете (для заголовка Live-панели). */
+    private long countPoints(Path pointsFile) throws IOException {
+        return Files.exists(pointsFile)
+                ? Files.readAllLines(pointsFile).stream().filter(l -> !l.isBlank()).count()
+                : 0;
+    }
+
+    private static void putNullableLong(ObjectNode n, String field, Object v) {
+        if (v instanceof Long l) {
+            n.put(field, l);
+        } else {
+            n.putNull(field);
+        }
     }
 
     /** Словарь forkType (спека 33 §6): ключи fork_types из gestalt_eval; БД недоступна —
@@ -632,6 +790,8 @@ class EvalViewerTest {
     private void respond(HttpExchange ex, int status, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        // опрос /api/replay-live идёт каждые 2с — кэш ответов заморозил бы живую панель
+        ex.getResponseHeaders().set("Cache-Control", "no-store");
         ex.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
         try (OutputStream out = ex.getResponseBody()) {
             out.write(bytes);

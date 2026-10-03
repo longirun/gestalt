@@ -12,7 +12,8 @@ import java.util.List;
  * Прогоны стадий (план 31 §7.1/§7.3): история попыток — в базе, а не в именах логов.
  * Резюм = новый run (старый помечен interrupted/failed), продолжающий работу с
  * чекпоинтов (replay) или существующих пар (arms). Экономика прогона — llm_calls
- * и токены — фиксируется при finish (writer-проход §7).
+ * и токены — обновляется на лету (progress — Live-панель viewer'а) и финализируется
+ * при finish (writer-проход §7).
  */
 public final class RunStore {
 
@@ -66,6 +67,20 @@ public final class RunStore {
             Sql.setNullableLong(ps, 3, promptTokens);
             Sql.setNullableLong(ps, 4, completionTokens);
             ps.setLong(5, runId);
+            ps.executeUpdate();
+        }
+    }
+
+    /** Живая телеметрия прогона (E8, Live-панель viewer'а /api/replay-live): экономика
+     *  пишется по ходу стадии, а не только при finish; промежуточные значения —
+     *  накопленные с начала прогона счётчики, finish их перезаписывает финальными. */
+    public void progress(long runId, long llmCalls, long promptTokens, long completionTokens) throws SQLException {
+        String sql = "UPDATE runs SET llm_calls = ?, prompt_tokens = ?, completion_tokens = ? WHERE id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setLong(1, llmCalls);
+            ps.setLong(2, promptTokens);
+            ps.setLong(3, completionTokens);
+            ps.setLong(4, runId);
             ps.executeUpdate();
         }
     }
