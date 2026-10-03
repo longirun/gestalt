@@ -12,6 +12,10 @@ out/
 *.ear
 *.hprof
 
+# Python (eval/tools)
+__pycache__/
+*.pyc
+
 # IDEs & Editors
 .idea/
 *.iml

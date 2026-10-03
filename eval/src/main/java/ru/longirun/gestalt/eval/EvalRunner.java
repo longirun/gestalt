@@ -198,6 +198,7 @@ public final class EvalRunner {
                 System.out.printf("[REPLAY] %d застрявших running-прогонов replay помечены interrupted (§7.3)%n", stale);
             }
             long runId = runs.start(experiment, "replay", "слепки → snapshots (PG) + дамп out/");
+            long startedNanos = System.nanoTime();
             PointSnapshotStore snapshotStore = new PointSnapshotStore(conn);
             try {
                 FactRepository repo = new FactRepository(conn);
@@ -272,7 +273,7 @@ public final class EvalRunner {
                         boolean projected = false;
                         if (work.bound() > cursor) {
                             ingest(owner, project, pipeline, extractor, batcher, checkpoints, metrics,
-                                    log, cursor, work.bound(), sessionId, repo);
+                                    log, cursor, work.bound(), sessionId, repo, runs, runId, startedNanos);
                             cursor = work.bound();
                             json = job.reconcile(owner, project);
                         } else if (work.bound() < cursor) {
@@ -313,11 +314,12 @@ public final class EvalRunner {
                 metrics.llmCalls, metrics.promptTokens, metrics.completionTokens);
     }
 
-    /** Обработка реплик (fromId, toId] тем же конвейером, что в спайке: батч → экстракция → дедуп. */
+    /** Обработка реплик (fromId, toId] тем же конвейером, что в спайке: батч → экстракция → дедуп.
+     *  По батчу — живая телеметрия runs.progress и консольный прогресс-лайн (E8). */
     private static void ingest(String owner, String project, DedupPipeline pipeline, LlmBatchExtractor extractor,
                                Batcher batcher, CheckpointStore checkpoints, Metrics metrics,
                                List<RawMessage> log, long fromId, long toId, String sessionId,
-                               FactRepository repo) throws Exception {
+                               FactRepository repo, RunStore runs, long runId, long startedNanos) throws Exception {
         List<RawMessage> slice = new ArrayList<>();
         for (RawMessage message : log) {
             if (message.id() > fromId && message.id() <= toId) {
@@ -332,8 +334,35 @@ public final class EvalRunner {
             metrics.completionTokens += res.usage().completionTokens();
             pipeline.process(owner, sessionId, project, res.facts());
             checkpoints.advance(sessionId, batch.getLast().id());
+            runs.progress(runId, metrics.llmCalls, metrics.promptTokens, metrics.completionTokens);
+            printProgress(log, batch.getLast().id(), metrics, startedNanos);
         }
         checkpoints.advance(sessionId, toId);
+        System.out.println();
+    }
+
+    /** Консольный прогресс-лайн инжеста (E8): перезапись строки через \r — процент среза,
+     *  позиция, экономика, прошедшее время и ETA по среднему темпу с начала прогона.
+     *  package-private: дергается smoke-репетицией LiveReplaySmokeTest без LLM. */
+    static void printProgress(List<RawMessage> log, long cursorId, Metrics metrics, long startedNanos) {
+        long processed = 0;
+        for (RawMessage message : log) {
+            if (message.id() <= cursorId) {
+                processed++;
+            }
+        }
+        long percent = log.isEmpty() ? 100 : processed * 100 / log.size();
+        long elapsedSec = Math.max(1, (System.nanoTime() - startedNanos) / 1_000_000_000L);
+        long rate = processed / elapsedSec;
+        long etaSec = rate > 0 ? (log.size() - processed) / rate : -1;
+        System.out.printf("\r[REPLAY] %3d%% (%d/%d) | calls %d | tok %,d/%,d | elapsed %s | ETA %s   ",
+                percent, processed, log.size(), metrics.llmCalls,
+                metrics.promptTokens, metrics.completionTokens,
+                hms(elapsedSec), etaSec < 0 ? "—" : hms(etaSec));
+    }
+
+    static String hms(long sec) {
+        return "%d:%02d:%02d".formatted(sec / 3600, (sec / 60) % 60, sec % 60);
     }
 
     /**
@@ -357,7 +386,7 @@ public final class EvalRunner {
         return -1;
     }
 
-    private static final class Metrics {
+    static final class Metrics {
         long llmCalls;
         long promptTokens;
         long completionTokens;
